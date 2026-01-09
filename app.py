@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 # --- 1. KONFIGURÁCIA AI (AKTUALIZOVANÉ PRE ROK 2026) ---
 # Skúste gemini-2.0-flash alebo gemini-2.5-flash
-MODEL_NAME = "gemini-2.0-flash" 
+MODEL_NAME = "gemini-1.5-flash"  # Prepnutie na stabilnejšiu verziu 
 
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -144,4 +144,22 @@ if st.session_state.basket:
 if st.session_state.ai_text:
     final_txt = st.text_area("Upraviť:", value=st.session_state.ai_text, height=300)
     pdf_file = generate_pdf(final_txt)
-    st.download_button("📥 PDF", data=bytes(pdf_file), file_name=f"Ponuka_{f_firma}.pdf")
+    st.download_button("📥 PDF", data=b
+if st.button("✨ GENEROVAŤ PONUKU"):
+        try:
+            model = genai.GenerativeModel(MODEL_NAME)
+            prods = "\n".join([f"- {i['ks']}ks {i['n']}, {i['b']}, {i['p']}€/ks" for i in st.session_state.basket])
+            prompt = f"Si obchodník Brandex. Vytvor ponuku pre {f_firma}. Produkty:\n{prods}\nCelkom: {total}€ bez DPH. Jazyk: {f_jazyk}."
+            
+            response = model.generate_content(prompt)
+            st.session_state.ai_text = response.text
+            
+        except Exception as e:
+            if "429" in str(e):
+                st.error("⚠️ Prekročili ste limit bezplatných požiadaviek. Prosím, počkajte 60 sekúnd a skúste to znova.")
+            elif "404" in str(e):
+                st.error("❌ Model nebol nájdený. Skúste v kóde zmeniť MODEL_NAME na 'gemini-1.5-flash'.")
+            else:
+                st.error(f"Chyba: {e}")
+
+ytes(pdf_file), file_name=f"Ponuka_{f_firma}.pdf")
