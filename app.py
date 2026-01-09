@@ -8,31 +8,46 @@ from fpdf import FPDF
 from datetime import datetime, timedelta
 
 # --- 1. KONFIGURÁCIA ---
-# Na Streamlit Cloud nastavte v Settings -> Secrets: GEMINI_API_KEY
 API_KEY = st.secrets.get("GEMINI_API_KEY", "TU_VLOZTE_VAS_API_KLUC")
 genai.configure(api_key=API_KEY)
 
 FEED_URL = "https://produkty.brandex.sk/index.cfm?module=Brandex&page=DownloadFile&File=DataExport"
 
-# --- 2. NAČÍTANIE DÁT ---
+# --- 2. ROBUSTNÉ NAČÍTANIE DÁT ---
 @st.cache_data(ttl=3600)
 def load_brandex_feed():
     try:
-        response = requests.get(FEED_URL, timeout=20)
-        # Brandex používa Windows-1250 kódovanie
+        response = requests.get(FEED_URL, timeout=25)
+        # Brandex používa Windows-1250
         content = response.content.decode('windows-1250', errors='replace')
         
-        # Vyčistenie problematických deklarácií v XML
-        content = content.replace('encoding="windows-1250"', 'encoding="utf-8"')
-        content = content.replace('encoding="ISO-8859-2"', 'encoding="utf-8"')
+        # Skúsime načítať XML s rôznymi cestami (xpath)
+        # Brandex zvyčajne balí produkty do <item> alebo <row>
+        df = pd.DataFrame()
+        for path in ['.//item', './/row', './*', './/product']:
+            try:
+                df = pd.read_xml(io.StringIO(content), xpath=path)
+                if not df.empty and len(df.columns) > 1:
+                    break
+            except:
+                continue
         
-        df = pd.read_xml(io.StringIO(content))
-        
-        # Vyčistenie názvov stĺpcov (odstránenie medzier a prevod na malé písmená pre ľahšie hľadanie)
-        df.columns = [str(c).strip() for c in df.columns]
-        return df
+        if df.empty:
+            # Ak zlyhalo XML, skúsime to ako CSV (niektoré exporty tak fungujú)
+            try:
+                df = pd.read_csv(io.StringIO(content), sep=';')
+            except:
+                pass
+
+        if not df.empty:
+            # Vyčistíme názvy stĺpcov
+            df.columns = [str(c).strip() for c in df.columns]
+            # Vyčistíme text v celom dataframe (odstránenie bielych znakov)
+            df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+            return df
+        return pd.DataFrame()
     except Exception as e:
-        st.error(f"Chyba pri načítaní feedu: {e}")
+        st.error(f"Chyba pripojenia k feedu: {e}")
         return pd.DataFrame()
 
 # --- 3. PDF GENERÁTOR ---
@@ -41,8 +56,8 @@ class BrandexPDF(FPDF):
         try:
             self.image("brandex_logo.png", 10, 8, 50)
         except:
-            self.set_font('helvetica', 'B', 16)
-            self.cell(0, 10, 'BRANDEX - Cenová ponuka', ln=True)
+            self.set_font('helvetica', 'B', 14)
+            self.cell(0, 10, 'BRANDEX PONUKA', ln=True)
         self.ln(20)
 
 def generate_pdf(text):
@@ -56,119 +71,98 @@ def generate_pdf(text):
     pdf.multi_cell(0, 7, text)
     return pdf.output()
 
-# --- 4. WEBOVÉ ROZHRANIE ---
-st.set_page_config(page_title="Brandex AI Ponuky", layout="wide")
+# --- 4. UI APLIKÁCIE ---
+st.set_page_config(page_title="Brandex AI", layout="wide")
 
-if 'kosik' not in st.session_state:
-    st.session_state.kosik = []
-if 'ai_text' not in st.session_state:
-    st.session_state.ai_text = ""
+if 'kosik' not in st.session_state: st.session_state.kosik = []
+if 'ai_text' not in st.session_state: st.session_state.ai_text = ""
 
-st.title("🚀 Brandex Inteligentný Generátor")
+st.title("👕 Brandex Inteligentný Generátor")
+
+df = load_brandex_feed()
+
+# DEBUG: Ak chcete vidieť, čo je vo feede, odkomentujte riadok nižšie
+# st.write("Stĺpce vo feede:", df.columns.tolist() if not df.empty else "Prázdny feed")
+
+if df.empty:
+    st.error("❌ Nepodarilo sa načítať žiadne produkty z feedu. Skontrolujte URL alebo formát dát.")
+    st.stop()
 
 # SIDEBAR
 with st.sidebar:
     st.header("👤 Klient")
-    f_firma = st.text_input("Názov firmy", "Klient s.r.o.")
-    f_osoba = st.text_input("Kontaktná osoba")
-    f_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
+    f_firma = st.text_input("Firma", "Klient s.r.o.")
+    f_platnost = st.date_input("Platnosť", datetime.now() + timedelta(days=14))
     f_jazyk = st.selectbox("Jazyk", ["Slovenčina", "Angličtina"])
-    f_styl = st.selectbox("Tón", ["Profesionálny", "Priateľský"])
 
 # HLAVNÁ ČASŤ
-df = load_brandex_feed()
+col_l, col_r = st.columns([2, 1])
 
-col_left, col_right = st.columns([2, 1])
+with col_l:
+    st.subheader("🔍 Výber produktu")
+    
+    # Automatická identifikácia stĺpca s názvom
+    name_cols = [c for c in df.columns if c.lower() in ['name', 'nazov', 'product', 'titul']]
+    name_col = name_cols[0] if name_cols else df.columns[0]
+    
+    # Odstránenie duplicít a zoradenie
+    zoznam_produktov = sorted(df[name_col].dropna().unique())
+    vyber = st.selectbox("Hľadajte v katalógu", zoznam_produktov)
+    
+    # Filtrovanie
+    filter_df = df[df[name_col] == vyber]
+    
+    if not filter_df.empty:
+        p_data = filter_df.iloc[0]
+        st.success(f"Vybrané: **{vyber}**")
+        
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            price_cols = [c for c in df.columns if c.lower() in ['price', 'cena', 'price_vat_excl']]
+            price_col = price_cols[0] if price_cols else None
+            try:
+                nakup = float(p_data[price_col]) if price_col else 0.0
+            except:
+                nakup = 0.0
+            st.metric("Nákup", f"{nakup} €")
+            marza = st.slider("Marža %", 0, 100, 30)
+        with c2:
+            ks = st.number_input("Počet kusov", 1, 10000, 100)
+            brand = st.selectbox("Branding", ["Sieťotlač", "Výšivka", "DTF", "Laser"])
+        with c3:
+            b_cena = st.number_input("Branding/ks €", 0.0, 10.0, 1.0)
+            predaj_ks = round((nakup * (1 + marza/100)) + b_cena, 2)
+            st.subheader(f"{predaj_ks} €/ks")
+        
+        if st.button("➕ Pridať do ponuky"):
+            st.session_state.kosik.append({
+                "n": vyber, "ks": ks, "p": predaj_ks, "s": round(predaj_ks * ks, 2), "b": brand
+            })
+            st.rerun()
 
-with col_left:
-    st.subheader("🔍 Výber z katalógu")
-    if not df.empty:
-        # Hľadanie správneho stĺpca pre názov (skúsime bežné varianty)
-        mozne_stlpce = ['Name', 'NAME', 'Product', 'Product_Name', 'Nazov', 'NAZOV']
-        search_col = next((c for c in mozne_stlpce if c in df.columns), df.columns[0])
-        
-        vyber_mena = st.selectbox("Vyberte produkt", df[search_col].unique())
-        
-        # Filtrovanie dát pre vybraný produkt
-        filtered_df = df[df[search_col] == vyber_mena]
-        
-        if not filtered_df.empty:
-            prod_data = filtered_df.iloc[0]
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                # Hľadanie ceny
-                cena_col = next((c for c in ['Price', 'PRICE', 'Cena', 'CENA'] if c in df.columns), None)
-                try:
-                    n_cena = float(prod_data[cena_col]) if cena_col else 0.0
-                except:
-                    n_cena = 0.0
-                st.metric("Nákupná cena", f"{n_cena} €")
-                marza = st.slider("Marža %", 0, 150, 30)
-            with c2:
-                mnozstvo = st.number_input("Počet kusov", min_value=1, value=100)
-                branding = st.selectbox("Branding", ["Sieťotlač", "Výšivka", "DTF", "Laser", "UV Tlač"])
-            with c3:
-                b_cena = st.number_input("Branding/ks €", value=1.0)
-                p_cena = round((n_cena * (1 + marza/100)) + b_cena, 2)
-                st.subheader(f"{p_cena} €/ks")
-            
-            if st.button("➕ Pridať do ponuky"):
-                st.session_state.kosik.append({
-                    "nazov": vyber_mena,
-                    "ks": mnozstvo,
-                    "cena_ks": p_cena,
-                    "spolu": round(p_cena * mnozstvo, 2),
-                    "branding": branding
-                })
-                st.toast(f"Pridané: {vyber_mena}")
-                st.rerun()
-    else:
-        st.warning("Čakám na načítanie produktov z feedu...")
-
-with col_right:
-    st.subheader("🛒 Aktuálny košík")
+with col_r:
+    st.subheader("🛒 Košík")
+    for i in st.session_state.kosik:
+        st.write(f"- {i['n']} ({i['ks']}ks)")
+    
     if st.session_state.kosik:
-        for idx, item in enumerate(st.session_state.kosik):
-            st.write(f"**{item['nazov']}**")
-            st.caption(f"{item['ks']}ks x {item['cena_ks']}€ ({item['branding']})")
-        
-        celkom = sum(i['spolu'] for i in st.session_state.kosik)
-        st.write(f"--- \n**Celkom bez DPH: {celkom:.2f} €**")
-        
-        if st.button("🗑️ Vymazať košík"):
+        total = sum(i['s'] for i in st.session_state.kosik)
+        st.write(f"**Spolu bez DPH: {total:.2f} €**")
+        if st.button("🗑️ Vymazať"):
             st.session_state.kosik = []
             st.rerun()
-    else:
-        st.write("Váš košík je zatiaľ prázdny.")
 
-# --- AI A PDF ---
+# AI ČASŤ
 if st.session_state.kosik:
     st.divider()
-    if st.button("✨ VYGENEROVAŤ TEXT PONUKY POMOCOU AI"):
+    if st.button("✨ VYGENEROVAŤ PONUKU"):
         with st.spinner("AI pracuje..."):
             model = genai.GenerativeModel('gemini-1.5-flash')
-            txt_produkty = ""
-            for p in st.session_state.kosik:
-                txt_produkty += f"- {p['ks']}ks {p['nazov']}, branding: {p['branding']}, cena: {p['cena_ks']}€/ks\n"
-            
-            prompt = f"""Vytvor profesionálnu cenovú ponuku pre firmu {f_firma}. 
-            Produkty:\n{txt_produkty}\n
-            Suma spolu: {sum(i['spolu'] for i in st.session_state.kosik)} € bez DPH.
-            Platnosť: {f_platnost}. Jazyk: {f_jazyk}. Štýl: {f_styl}.
-            Zahrň poďakovanie a informáciu o kvalite Brandex."""
-            
+            text_p = "\n".join([f"- {i['ks']}ks {i['n']}, technológia {i['b']}, cena {i['p']}€/ks" for i in st.session_state.kosik])
+            prompt = f"Vytvor obchodnú ponuku pre {f_firma}. Produkty:\n{text_p}\nSuma: {total}€ bez DPH. Platnosť: {f_platnost}. Jazyk: {f_jazyk}."
             st.session_state.ai_text = model.generate_content(prompt).text
 
     if st.session_state.ai_text:
-        upraveny_text = st.text_area("Finalizácia textu:", value=st.session_state.ai_text, height=300)
-        
-        col_down1, col_down2 = st.columns(2)
-        with col_down1:
-            pdf_data = generate_pdf(upraveny_text)
-            st.download_button(
-                "📥 Stiahnuť PDF ponuku", 
-                data=bytes(pdf_data), 
-                file_name=f"Ponuka_Brandex_{f_firma}.pdf",
-                mime="application/pdf"
-            )
+        fin_text = st.text_area("Upraviť text:", value=st.session_state.ai_text, height=300)
+        pdf_file = generate_pdf(fin_text)
+        st.download_button("📥 Stiahnuť PDF", data=bytes(pdf_file), file_name=f"Ponuka_{f_firma}.pdf")
