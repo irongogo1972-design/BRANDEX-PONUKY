@@ -8,9 +8,9 @@ import xml.etree.ElementTree as ET
 from fpdf import FPDF
 from datetime import datetime, timedelta
 
-# --- 1. KONFIGURÁCIA AI (v2026) ---
-# Skúsime najnovší stabilný model pre rok 2026
-MODEL_NAME = "gemini-2.0-flash" 
+# --- 1. KONFIGURÁCIA AI ---
+# Skúste "gemini-1.5-flash" (najstabilnejší pre free verzie)
+MODEL_NAME = "gemini-1.5-flash" 
 
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
@@ -18,39 +18,59 @@ if API_KEY:
         genai.configure(api_key=API_KEY)
     except Exception as e:
         st.error(f"Chyba AI konfigurácie: {e}")
-else:
-    st.error("⚠️ Chýba API kľúč v Streamlit Secrets!")
 
 FEED_URL = "https://produkty.brandex.sk/index.cfm?module=Brandex&page=DownloadFile&File=DataExport"
 
-# --- 2. ROBUSTNÝ BRANDEX PARSER ---
+# --- 2. POSILNENÝ BRANDEX PARSER ---
 @st.cache_data(ttl=3600)
 def load_brandex_data():
     try:
-        response = requests.get(FEED_URL, timeout=30)
+        # Pridávame hlavičku (User-Agent), aby nás server Brandexu neblokoval
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(FEED_URL, headers=headers, timeout=45)
+        
+        # Brandex používa Windows-1250 (stredoeurópske kódovanie)
         content = response.content.decode('windows-1250', errors='replace')
+        
+        # Skúsime nájsť dáta pomocou ElementTree
         root = ET.fromstring(content)
         data = []
-        # Hľadáme produkty obsahujúce KOD_IT
-        for node in root.findall('.//*'):
-            if node.find('KOD_IT') is not None:
+        
+        # Hľadáme všetky uzly, ktoré by mohli byť produktom
+        for node in root.iter():
+            # Skontrolujeme, či tento uzol alebo jeho deti obsahujú KOD_IT
+            kod_node = node.find('.//KOD_IT') or node.find('KOD_IT')
+            if kod_node is not None:
                 row = {}
                 for child in node:
-                    tag = child.tag.upper().strip()
-                    val = child.text.strip() if child.text else ""
-                    row[tag] = val
-                data.append(row)
-        if not data: return pd.DataFrame()
+                    tag = child.tag.split('}')[-1] # Odstránenie prípadných menných priestorov
+                    row[tag.upper()] = child.text.strip() if child.text else ""
+                if row:
+                    data.append(row)
+        
+        if not data:
+            return pd.DataFrame(), content[:1000] # Vrátime prázdne a kúsok textu pre ladiaci výpis
+
         df = pd.DataFrame(data)
-        mapping = {'KOD_IT': 'kod', 'NAZOV': 'n', 'CENA_EU': 'p'}
+
+        # Premenovanie polí
+        mapping = {
+            'KOD_IT': 'kod',
+            'NAZOV': 'n',
+            'CENA_EU': 'p',
+            'CENA_MO': 'p',
+            'PRICE': 'p'
+        }
         df = df.rename(columns=mapping)
+        
+        # Vyčistenie cien (čiarka -> bodka)
         if 'p' in df.columns:
             df['p'] = df['p'].astype(str).str.replace(',', '.')
             df['p'] = pd.to_numeric(df['p'], errors='coerce').fillna(0.0)
-        return df
+        
+        return df, ""
     except Exception as e:
-        st.error(f"Chyba pri načítaní katalógu: {e}")
-        return pd.DataFrame()
+        return pd.DataFrame(), str(e)
 
 # --- 3. PDF GENERÁTOR ---
 class BrandexPDF(FPDF):
@@ -78,18 +98,16 @@ if 'ai_text' not in st.session_state: st.session_state.ai_text = ""
 
 st.title("👕 Brandex Inteligentný Generátor")
 
-df = load_brandex_data()
+# Načítanie dát
+df, debug_info = load_brandex_data()
 
-# ÚDAJE O KLIENTOVI
-with st.container():
-    st.subheader("📝 Údaje o klientovi")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: f_firma = st.text_input("Firma / Klient", "Vzorová Firma s.r.o.")
-    with c2: f_osoba = st.text_input("Kontaktná osoba")
-    with c3: f_platnost = st.date_input("Platnosť ponuky do", datetime.now() + timedelta(days=14))
-    with c4: f_jazyk = st.selectbox("Jazyk", ["Slovenčina", "Angličtina"])
-
-st.divider()
+# SIDEBAR S ÚDAJMI O KLIENTOVI
+with st.sidebar:
+    st.header("👤 Klient")
+    f_firma = st.text_input("Firma", "Vzorová Firma s.r.o.")
+    f_osoba = st.text_input("Kontaktná osoba")
+    f_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
+    f_jazyk = st.selectbox("Jazyk", ["Slovenčina", "Angličtina"])
 
 # VÝBER PRODUKTU
 tab1, tab2 = st.tabs(["🔍 Výber z katalógu", "➕ Pridať manuálne / z webu"])
@@ -97,17 +115,23 @@ curr_n, curr_kod, curr_p = "", "", 0.0
 
 with tab1:
     if not df.empty:
+        # Vytvorenie vyhľadávacieho poľa [KÓD] Názov
         df['display'] = "[" + df['kod'].astype(str) + "] " + df['n'].astype(str)
         items = sorted(df['display'].unique())
-        vyber = st.selectbox("Hľadať produkt", items)
+        vyber = st.selectbox("Hľadať produkt v Brandex katalógu", items)
+        
         res = df[df['display'] == vyber]
         if not res.empty:
             r = res.iloc[0]
             curr_n, curr_kod, curr_p = r['n'], r['kod'], float(r.get('p', 0.0))
     else:
-        st.info("Katalóg prázdny, zadajte údaje manuálne v druhom tabe.")
+        st.error("❌ Katalóg je prázdny. Systém v XML nenašiel značku KOD_IT.")
+        with st.expander("Ladiace informácie pre technika"):
+            st.write("Výsledok spracovania:")
+            st.code(debug_info)
 
 with tab2:
+    st.write("Tu môžete zadať údaje manuálne, ak ich nevidíte v katalógu.")
     m_kod = st.text_input("Kód tovaru (KOD_IT)", value=curr_kod)
     m_nazov = st.text_input("Názov produktu", value=curr_n)
     m_cena = st.number_input("Nákupná cena € bez DPH", value=curr_p, step=0.1)
@@ -117,15 +141,14 @@ final_p = m_cena if m_cena > 0 else curr_p
 final_kod = m_kod if m_kod else curr_kod
 
 # NACENENIE
-st.subheader(f"Nacenenie: {final_n}")
+st.divider()
+st.subheader(f"Nacenenie položky: {final_n}")
 p1, p2, p3, p4 = st.columns(4)
-with p1: 
-    marza = st.number_input("Marža %", value=35)
-with p2: 
-    ks = st.number_input("Počet kusov", min_value=1, value=100)
+with p1: marza = st.number_input("Vaša marža %", value=35)
+with p2: ks = st.number_input("Počet kusov", min_value=1, value=100)
 with p3: 
-    brand = st.selectbox("Branding", ["Sieťotlač", "Výšivka", "DTF potlač", "Laser", "UV tlač", "Bez potlače"])
-    b_cena = st.number_input("Cena brandingu/ks €", value=1.2 if brand != "Bez potlače" else 0.0, step=0.05)
+    brand = st.selectbox("Typ brandingu", ["Sieťotlač", "Výšivka", "DTF potlač", "Laser", "UV tlač", "Bez potlače"])
+    b_cena = st.number_input("Cena za branding/ks €", value=1.2 if brand != "Bez potlače" else 0.0, step=0.05)
 with p4:
     predaj = round((final_p * (1 + marza/100)) + b_cena, 2)
     st.write("Predajná cena:")
@@ -134,44 +157,37 @@ with p4:
         st.session_state.basket.append({"kod": final_kod, "n": final_n, "ks": ks, "p": predaj, "s": round(predaj*ks, 2), "b": brand})
         st.rerun()
 
-# KOŠÍK A AI GENERÁTOR
+# KOŠÍK A AI
 if st.session_state.basket:
     st.divider()
-    st.subheader("📋 Položky v ponuke")
+    st.subheader("📋 Rozpracovaná ponuka")
     for i in st.session_state.basket:
         st.write(f"- **[{i['kod']}] {i['n']}** | {i['ks']}ks | {i['b']} | {i['p']}€/ks -> **{i['s']} €**")
     
     celkom = sum(i['s'] for i in st.session_state.basket)
     st.write(f"### Spolu bez DPH: {celkom:.2f} €")
     
-    col_ai1, col_ai2 = st.columns(2)
-    with col_ai1:
+    c_ai1, c_ai2 = st.columns(2)
+    with c_ai1:
         if st.button("🗑️ Vymazať košík"):
             st.session_state.basket = []
             st.rerun()
-    with col_ai2:
-        # TENTO BLOK JE TERAZ SPRÁVNE ODSADENÝ
+    with c_ai2:
         if st.button("✨ VYGENEROVAŤ PONUKU POMOCOU AI"):
             if not API_KEY:
-                st.error("Chýba API kľúč v nastaveniach!")
+                st.error("Chýba API kľúč v Streamlit Secrets!")
             else:
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     prods = "\n".join([f"- {i['ks']}ks {i['n']} (kód: {i['kod']}), {i['b']}, {i['p']}€/ks" for i in st.session_state.basket])
-                    prompt = f"Si obchodník Brandex. Vytvor obchodnú ponuku pre {f_firma}. Produkty:\n{prods}\nCelkom: {celkom}€ bez DPH. Jazyk: {f_jazyk}."
-                    
+                    prompt = f"Si obchodník firmy Brandex. Vytvor profesionálnu ponuku pre {f_firma}. Produkty:\n{prods}\nCelkom: {celkom}€ bez DPH. Jazyk: {f_jazyk}. Platnosť do: {f_platnost}."
                     response = model.generate_content(prompt)
                     st.session_state.ai_text = response.text
                 except Exception as e:
-                    if "404" in str(e):
-                        st.error("❌ Model 'gemini-2.0-flash' nenájdený. Skúste v kóde zmeniť MODEL_NAME na 'gemini-1.5-flash-latest'.")
-                    elif "429" in str(e):
-                        st.error("⚠️ Limit vyčerpaný. Počkajte 60 sekúnd.")
-                    else:
-                        st.error(f"Chyba AI: {e}")
+                    st.error(f"Chyba AI: {e}")
 
 if st.session_state.ai_text:
     st.divider()
-    f_text = st.text_area("Upraviť text:", value=st.session_state.ai_text, height=300)
+    f_text = st.text_area("Finalizácia textu (môžete upraviť):", value=st.session_state.ai_text, height=300)
     pdf_data = generate_pdf(f_text)
-    st.download_button("📥 Stiahnuť PDF", data=bytes(pdf_data), file_name=f"Ponuka_Brandex_{f_firma}.pdf")
+    st.download_button("📥 Stiahnuť PDF ponuku", data=bytes(pdf_data), file_name=f"Ponuka_Brandex_{f_firma}.pdf")
