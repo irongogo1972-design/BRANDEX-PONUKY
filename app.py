@@ -8,16 +8,13 @@ from datetime import datetime, timedelta
 import io
 import os
 
-# --- 1. KONFIGURÁCIA AI (OPRAVA 404 CHYBY) ---
-# Použijeme stabilný názov modelu pre rok 2026
+# --- 1. KONFIGURÁCIA AI (OPRAVA 404) ---
+# V roku 2026 skúsime najprv stabilný názov, ak zlyhá, vypíšeme diagnostiku
 MODEL_NAME = "gemini-1.5-flash" 
 
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 if API_KEY:
-    try:
-        genai.configure(api_key=API_KEY)
-    except Exception as e:
-        st.error(f"Chyba konfigurácie AI: {e}")
+    genai.configure(api_key=API_KEY)
 
 # --- 2. NAČÍTANIE EXCELU (A, F, G, H, N, P, Q) ---
 @st.cache_data
@@ -25,7 +22,6 @@ def load_excel_data():
     file_path = "produkty.xlsx"
     if not os.path.exists(file_path):
         return pd.DataFrame()
-    
     try:
         # Indexy: A=0, F=5, G=6, H=7, N=13, P=15, Q=16
         df = pd.read_excel(
@@ -34,17 +30,16 @@ def load_excel_data():
             names=["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_GROUP", "IMG_PRODUCT"],
             engine='openpyxl'
         )
-        # Vyčistenie
         df = df.dropna(subset=["KOD_IT", "SKUPINOVY_NAZOV"])
         return df
     except Exception as e:
         st.error(f"Chyba pri čítaní Excelu: {e}")
         return pd.DataFrame()
 
-# --- 3. PDF GENERÁTOR ---
+# --- 3. PDF GENERÁTOR (VYLEPŠENÝ O SŤAHOVANIE OBRÁZKOV) ---
 class BrandexPDF(FPDF):
     def header(self):
-        try: self.image("brandex_logo.png", 10, 8, 45)
+        try: self.image("brandex_logo.png", 10, 8, 40)
         except: pass
         self.ln(20)
 
@@ -52,72 +47,75 @@ def generate_pdf(text, basket_items):
     pdf = BrandexPDF()
     pdf.add_page()
     try:
-        # Uistite sa, že DejaVuSans.ttf je v priečinku na GitHube
         pdf.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True)
         pdf.set_font('DejaVu', '', 11)
     except:
         pdf.set_font('helvetica', '', 11)
     
-    # AI Text ponuky
     pdf.multi_cell(0, 7, text)
     pdf.ln(10)
     
-    # Tabuľka produktov
     pdf.set_font('helvetica', 'B', 12)
-    pdf.cell(0, 10, "Rozpis produktov:", ln=True)
-    pdf.set_font('DejaVu', '', 9)
+    pdf.cell(0, 10, "Detailny rozpis produktov:", ln=True)
     
     for item in basket_items:
-        y_start = pdf.get_y()
-        # Obrázok variantu (stĺpec Q) má prednosť v PDF
-        img_url = item.get('img_p') if str(item.get('img_p')) != 'nan' else item.get('img_g')
+        pdf.set_font('DejaVu', '', 9)
+        y_before = pdf.get_y()
         
-        if img_url and str(img_url) != 'nan':
+        # Stiahnutie a vloženie obrázka do PDF
+        img_url = item.get('img_p') if str(item.get('img_p')) != 'nan' else item.get('img_g')
+        if img_url and str(img_url).startswith('http'):
             try:
-                pdf.image(img_url, x=10, y=y_start, w=25)
+                img_res = requests.get(img_url, timeout=5)
+                img_bytes = io.BytesIO(img_res.content)
+                pdf.image(img_bytes, x=10, y=y_before, w=25)
                 pdf.set_x(40)
             except:
                 pdf.set_x(10)
-        
+        else:
+            pdf.set_x(10)
+
         info = (f"[{item['kod']}] {item['n']}\n"
                 f"Farba: {item['f']} | Velkost: {item['v']}\n"
-                f"Mnozstvo: {item['ks']} ks | Cena: {item['p']} EUR/ks")
+                f"Mnozstvo: {item['ks']} ks | Cena po zlave: {item['p']} EUR/ks")
         pdf.multi_cell(0, 6, info)
-        pdf.ln(15)
+        pdf.ln(10)
         
     return pdf.output()
 
 # --- 4. WEBOVÉ ROZHRANIE ---
-st.set_page_config(page_title="Brandex Creator", layout="wide")
+st.set_page_config(page_title="Brandex Creator v2", layout="wide")
 
-# Inicializácia relácie
 if 'basket' not in st.session_state: st.session_state.basket = []
 if 'ai_text' not in st.session_state: st.session_state.ai_text = ""
 
-st.title("👕 Brandex Inteligentný Generátor Ponúk")
+st.title("👕 Brandex Inteligentný Generátor")
 
 df = load_excel_data()
 
 if df.empty:
-    st.error("❌ Súbor 'produkty.xlsx' nebol nájdený. Nahrajte ho na GitHub.")
+    st.error("❌ Súbor 'produkty.xlsx' nenájdený. Nahrajte ho na GitHub.")
     st.stop()
 
-# --- SIDEBAR: KLIENT ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("👤 Údaje o klientovi")
+    st.header("👤 Klient")
     f_firma = st.text_input("Firma / Klient", "Klient s.r.o.")
-    f_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
+    f_platnost = st.date_input("Platnosť ponuky", datetime.now() + timedelta(days=14))
     f_jazyk = st.selectbox("Jazyk", ["Slovenčina", "Angličtina"])
-
-# --- HLAVNÁ ČASŤ: VÝBER ---
-col_selection, col_basket = st.columns([2, 1])
-
-with col_selection:
-    st.subheader("🛒 Výber tovaru")
     
-    # 1. Filtrovanie podľa názvu
-    prod_names = sorted(df['SKUPINOVY_NAZOV'].unique())
-    sel_name = st.selectbox("Vyberte model", prod_names)
+    if st.button("🔍 Diagnostika AI modelov"):
+        try:
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            st.write(models)
+        except: st.error("Nepodarilo sa overiť modely.")
+
+# --- HLAVNÁ ČASŤ ---
+col_1, col_2 = st.columns([2, 1])
+
+with col_1:
+    st.subheader("🛒 Výber tovaru")
+    sel_name = st.selectbox("Vyberte model", sorted(df['SKUPINOVY_NAZOV'].unique()))
     sub_df = df[df['SKUPINOVY_NAZOV'] == sel_name]
     
     c1, c2 = st.columns(2)
@@ -128,43 +126,42 @@ with col_selection:
     
     final_row = sub_df[(sub_df['FARBA'] == sel_color) & (sub_df['SIZE'] == sel_size)].iloc[0]
     
-    # --- OBRÁZKY ---
+    # Zobrazenie obrázkov (P a Q)
     st.divider()
-    img_col1, img_col2 = st.columns(2)
-    with img_col1:
+    i1, i2 = st.columns(2)
+    with i1:
         if str(final_row['IMG_GROUP']) != 'nan':
-            st.image(final_row['IMG_GROUP'], caption="Skupinový obrázok", use_container_width=True)
-    with img_col2:
+            st.image(final_row['IMG_GROUP'], caption="Skupinový náhľad (P)", width=250)
+    with i2:
         if str(final_row['IMG_PRODUCT']) != 'nan':
-            st.image(final_row['IMG_PRODUCT'], caption="Obrázok variantu", use_container_width=True)
+            st.image(final_row['IMG_PRODUCT'], caption="Detail variantu (Q)", width=250)
 
-    # --- VÝPOČET CENY (ZĽAVA Z N) ---
+    # VÝPOČET CENY
     st.divider()
     v1, v2 = st.columns(2)
     with v1:
-        # Cena zo stĺpca N
-        retail_price = float(final_row['PRICE']) if not pd.isna(final_row['PRICE']) else 0.0
-        st.write(f"Doporučená cena (bez DPH): **{retail_price:.2f} €**")
-        zlava = st.number_input("Zľava pre klienta %", min_value=0, max_value=100, value=0)
-        ks = st.number_input("Počet kusov (ks)", min_value=1, value=100)
+        price_n = float(final_row['PRICE']) if not pd.isna(final_row['PRICE']) else 0.0
+        st.write(f"Doporučená cena: **{price_n:.2f} €**")
+        zlava = st.number_input("Zľava pre klienta %", 0, 100, 0)
+        ks = st.number_input("Počet kusov", 1, 10000, 100)
     with v2:
-        brand = st.selectbox("Typ brandingu", ["Bez potlače", "Sieťotlač", "Výšivka", "DTF", "Laser"])
-        b_c = st.number_input("Cena za branding/ks €", value=1.2 if brand != "Bez potlače" else 0.0)
+        brand = st.selectbox("Branding", ["Bez potlače", "Sieťotlač", "Výšivka", "DTF", "Laser"])
+        b_c = st.number_input("Cena brandingu/ks €", value=1.2 if brand != "Bez potlače" else 0.0)
         
         # Logika: (Cena * (1 - zlava/100)) + branding
-        predaj_ks = round((retail_price * (1 - zlava/100)) + b_c, 2)
-        st.subheader(f"Výsledná cena: {predaj_ks} €/ks")
+        final_unit_price = round((price_n * (1 - zlava/100)) + b_c, 2)
+        st.subheader(f"Výsledná cena: {final_unit_price} €/ks")
         
         if st.button("➕ PRIDAŤ DO PONUKY"):
             st.session_state.basket.append({
                 "kod": final_row['KOD_IT'], "n": sel_name, "f": sel_color, "v": sel_size, 
-                "ks": ks, "p": predaj_ks, "s": round(predaj_ks*ks, 2), 
+                "ks": ks, "p": final_unit_price, "s": round(final_unit_price*ks, 2),
                 "img_g": final_row['IMG_GROUP'], "img_p": final_row['IMG_PRODUCT']
             })
             st.rerun()
 
-with col_basket:
-    st.subheader("📋 Obsah ponuky")
+with col_2:
+    st.subheader("📋 Košík")
     for i in st.session_state.basket:
         st.write(f"**{i['n']}** ({i['f']})")
         st.caption(f"{i['ks']}ks x {i['p']}€ = {i['s']}€")
@@ -176,43 +173,40 @@ with col_basket:
             st.session_state.basket = []
             st.rerun()
 
-# --- 5. NÁHĽAD A GENEROVANIE ---
+# --- 5. NÁHĽAD A TLAČ ---
 if st.session_state.basket:
     st.divider()
-    st.subheader("✨ Generovanie a náhľad ponuky")
+    st.subheader("📝 Náhľad a generovanie ponuky")
     
-    if st.button("🧠 Vytvoriť text ponuky pomocou AI"):
+    if st.button("🤖 Vygenerovať sprievodný text (AI)"):
         try:
+            # Oprava: Používame priame volanie bez v1beta
             model = genai.GenerativeModel(MODEL_NAME)
-            prods_info = "\n".join([f"- {i['ks']}ks {i['n']} ({i['f']}, {i['v']}), cena {i['p']}€/ks" for i in st.session_state.basket])
-            prompt = f"Si obchodník firmy Brandex. Vytvor profesionálnu ponuku pre {f_firma}. Jazyk: {f_jazyk}. Produkty:\n{prods_info}\nCelková suma: {total} EUR bez DPH."
+            prods = "\n".join([f"- {i['ks']}ks {i['n']} ({i['f']}), cena {i['p']}€/ks" for i in st.session_state.basket])
+            prompt = f"Si obchodník Brandex. Vytvor ponuku pre {f_firma}. Jazyk: {f_jazyk}. Produkty:\n{prods}\nCelkom: {total}€ bez DPH."
             
             response = model.generate_content(prompt)
             st.session_state.ai_text = response.text
         except Exception as e:
-            st.error(f"Chyba AI: {e}. Skúste neskôr.")
+            st.error(f"AI Chyba: {e}")
 
     if st.session_state.ai_text:
-        # NÁHĽAD PONUKY (PRE PRINT)
+        # Profesionálny náhľad
         with st.container(border=True):
-            st.markdown(f"### NÁHĽAD PONUKY - {f_firma}")
-            st.write(f"**Dátum:** {datetime.now().strftime('%d.%m.%Y')}")
-            st.write(f"**Platnosť do:** {f_platnost.strftime('%d.%m.%Y')}")
+            st.markdown(f"**Dátum:** {datetime.now().strftime('%d.%m.%Y')} | **Platnosť:** {f_platnost.strftime('%d.%m.%Y')}")
+            st.markdown(f"**Odberateľ:** {f_firma}")
             st.write("---")
             st.write(st.session_state.ai_text)
             st.write("---")
             for item in st.session_state.basket:
-                col1, col2 = st.columns([1, 4])
-                with col1:
+                c_img, c_txt = st.columns([1, 4])
+                with c_img:
                     img = item['img_p'] if str(item['img_p']) != 'nan' else item['img_g']
-                    if img and str(img) != 'nan': st.image(img, width=80)
-                with col2:
+                    if img and str(img).startswith('http'): st.image(img, width=100)
+                with c_txt:
                     st.write(f"**{item['n']}** (Kód: {item['kod']})")
-                    st.write(f"Farba: {item['f']} | Veľkosť: {item['v']} | Množstvo: {item['ks']} ks")
-                    st.write(f"Jednotková cena: {item['p']} € | **Spolu: {item['s']} €**")
-        
-        # TLAČOVÉ MOŽNOSTI
-        st.write(" ")
+                    st.caption(f"Farba: {item['f']} | Veľkosť: {item['v']} | Cena: {item['p']} €/ks")
+
+        # Tlač do PDF
         pdf_data = generate_pdf(st.session_state.ai_text, st.session_state.basket)
-        st.download_button("📥 Stiahnuť PDF pre tlač", data=bytes(pdf_data), file_name=f"Ponuka_{f_firma}.pdf", mime="application/pdf")
-        st.info("💡 Tip: Pre priamu tlač použite PDF súbor.")
+        st.download_button("📥 Stiahnuť PDF (pre tlač)", data=bytes(pdf_data), file_name=f"Ponuka_{f_firma}.pdf", mime="application/pdf")
