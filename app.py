@@ -1,4 +1,5 @@
-﻿# -*- coding: utf-8 -*-
+﻿
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta
 
 # --- 1. KONFIGURÁCIA AI ---
 # Skúste "gemini-1.5-flash" (stabilný) alebo "gemini-2.0-flash" (najnovší)
-MODEL_NAME = "gemini-1.5-flash" 
+MODEL_NAME = "gemini-2.0-flash" 
 
 API_KEY = st.secrets.get("GEMINI_API_KEY", "")
 
@@ -153,6 +154,27 @@ if st.session_state.basket:
             if not API_KEY:
                 st.error("Chýba API kľúč.")
             else:
+if st.button("✨ VYGENEROVAŤ PONUKU POMOCOU AI"):
+            if not API_KEY:
+                st.error("Chýba API kľúč v Secrets.")
+            else:
+                try:
+                    # Skúšame inicializovať model
+                    model = genai.GenerativeModel(model_name=MODEL_NAME)
+                    
+                    txt_prods = "\n".join([f"- {i['ks']}ks {i['n']} (kód: {i['kod']}), {i['b']}, {i['p']}€/ks" for i in st.session_state.basket])
+                    prompt = f"Si obchodník firmy Brandex. Vytvor profesionálnu obchodnú ponuku pre {f_firma}. Produkty:\n{txt_prods}\nCelkom: {celkom}€ bez DPH. Jazyk: {f_jazyk}. Platnosť do: {f_platnost}."
+                    
+                    response = model.generate_content(prompt)
+                    st.session_state.ai_text = response.text
+                    st.success("Ponuka úspešne vygenerovaná!")
+                except Exception as e:
+                    if "404" in str(e):
+                        st.error("❌ Model nebol nájdený. Pravdepodobne Google zmenil názov modelu. Kliknite na checkbox 'Zobraziť modely dostupné pre môj kľúč' v sidebare a prepíšte MODEL_NAME v kóde.")
+                    elif "429" in str(e):
+                        st.error("⚠️ Prekročený limit (Quota). Počkajte 60 sekúnd.")
+                    else:
+                        st.error(f"Chyba AI: {e}")
                 try:
                     model = genai.GenerativeModel(MODEL_NAME)
                     txt_prods = "\n".join([f"- {i['ks']}ks {i['n']} (kód: {i['kod']}), {i['b']}, {i['p']}€/ks" for i in st.session_state.basket])
