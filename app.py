@@ -5,8 +5,9 @@ import os
 import base64
 from datetime import datetime, timedelta
 
-# --- 1. POMOCNÉ FUNKCIE (Logo a Obrázky) ---
+# --- 1. POMOCNÉ FUNKCIE ---
 def get_base64_image(image_path):
+    """Prevedie lokálne logo na Base64, aby sa vždy zobrazilo pri tlači."""
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
@@ -17,24 +18,26 @@ if 'offer_items' not in st.session_state:
     st.session_state['offer_items'] = []
 
 # --- 2. NASTAVENIA STRÁNKY A CSS PRE TLAČ ---
-st.set_page_config(page_title="BRANDEX - Tvorba ponuky", layout="wide")
+st.set_page_config(page_title="BRANDEX Ponuka", layout="wide")
 
+# Načítanie loga (používame .PNG podľa zadania)
 logo_base64 = get_base64_image("brandex_logo.PNG")
 
 st.markdown(f"""
     <style>
-    /* Štýl pre obrazovku */
+    /* Štýl pre obrazovku (A4 simulácia) */
     @media screen {{
         .paper {{
             background: white;
             width: 210mm;
             min-height: 297mm;
-            padding: 20mm;
+            padding: 15mm;
             margin: 10px auto;
             box-shadow: 0 0 15px rgba(0,0,0,0.2);
             color: black;
         }}
         .print-header {{ text-align: center; margin-bottom: 20px; }}
+        .footer-box {{ margin-top: 50px; border-top: 1px solid black; padding-top: 10px; text-align: center; }}
     }}
 
     /* Štýl pre TLAČ (A4) */
@@ -47,9 +50,11 @@ st.markdown(f"""
             box-shadow: none !important; 
             width: 100% !important; 
             padding: 0 !important;
-            padding-top: 130px !important; /* Priestor pre fixné logo */
-            padding-bottom: 100px !important; /* Priestor pre fixnú pätu */
+            padding-top: 130px !important; /* Priestor pre fixnú hlavičku */
+            padding-bottom: 80px !important; /* Priestor pre fixnú pätu */
         }}
+        
+        /* Fixná hlavička s logom na každej strane */
         .print-header {{
             position: fixed;
             top: 0;
@@ -59,7 +64,12 @@ st.markdown(f"""
             height: 100px;
             background: white;
             z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }}
+        
+        /* Fixná päta na každej strane */
         .footer-box {{
             position: fixed;
             bottom: 0;
@@ -72,10 +82,11 @@ st.markdown(f"""
             font-size: 10px;
             z-index: 1000;
         }}
+        
         @page {{ size: A4; margin: 0; }}
     }}
 
-    /* Vycentrovaný nadpis */
+    /* Vycentrovaný nadpis ponuky */
     .centered-title input {{
         font-size: 32px !important;
         font-weight: bold !important;
@@ -86,13 +97,14 @@ st.markdown(f"""
         color: black !important;
     }}
     
+    /* Tabuľka položiek */
     table {{ width: 100%; border-collapse: collapse; margin-top: 20px; color: black; }}
     th, td {{ border: 1px solid black; padding: 6px; text-align: center; font-size: 11px; }}
     th {{ background-color: #f2f2f2; font-weight: bold; }}
-    .img-container {{ width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; }}
-    .img-container img {{ max-width: 65px; max-height: 65px; object-fit: contain; }}
+    .img-cell {{ width: 80px; height: 80px; vertical-align: middle; }}
+    .img-cell img {{ max-width: 75px; max-height: 75px; object-fit: contain; }}
     
-    .footer-box {{ font-size: 11px; line-height: 1.4; color: black; margin-top: 30px; }}
+    .footer-box {{ font-size: 11px; line-height: 1.4; color: black; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -102,7 +114,7 @@ def load_excel():
     file = "produkty.xlsx"
     if not os.path.exists(file): return pd.DataFrame()
     try:
-        # A=0, F=5, G=6, H=7, N=13, Q=16
+        # Mapovanie: A=0, F=5, G=6, H=7, N=13, Q=16
         df = pd.read_excel(file, engine="openpyxl")
         df = df.iloc[:, [0, 5, 6, 7, 13, 16]]
         df.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
@@ -112,7 +124,7 @@ def load_excel():
 
 df_db = load_excel()
 
-# --- 4. SIDEBAR (OVLÁDANIE) ---
+# --- 4. OVLÁDACÍ PANEL (SIDEBAR) ---
 with st.sidebar:
     st.header("📦 Pridať tovar")
     if not df_db.empty:
@@ -127,7 +139,7 @@ with st.sidebar:
         if st.button("➕ PRIDAŤ DO PONUKY"):
             for s in velkosti:
                 row = size_df[size_df['SIZE'] == s].iloc[0]
-                # Získame URL obrázka zo stĺpca Q
+                # Spracovanie URL obrázka
                 img_url = str(row['IMG_PRODUCT']).strip()
                 if img_url == 'nan' or not img_url.startswith('http'):
                     img_url = ""
@@ -185,8 +197,8 @@ if len(st.session_state['offer_items']) > 0:
             
             html += '<tr>'
             if i == 0:
-                img_tag = f'<div class="img-container"><img src="{it["img"]}"></div>' if it["img"] else ""
-                html += f'<td rowspan="{g_size}">{img_tag}</td>'
+                img_tag = f'<img src="{it["img"]}">' if it["img"] else ""
+                html += f'<td rowspan="{g_size}" class="img-cell">{img_tag}</td>'
             
             html += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{row_sum:.2f} €</td></tr>"
             idx += 1
@@ -198,7 +210,7 @@ st.divider()
 st.subheader("Branding")
 b1, b2, b3 = st.columns([2, 2, 1])
 with b1:
-    st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
+    st.selectbox("Typ brandingu", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
     st.text_area("Popis a umiestnenie", key="brand_desc")
 with b2:
     brand_unit_price = st.number_input("Cena brandingu na 1ks €", min_value=0.0, step=0.1, value=0.0)
@@ -208,7 +220,7 @@ with b3:
 
 total_brand_price = total_qty * brand_unit_price
 
-# SUMÁR DPH (23%)
+# REKAPITULÁCIA A DPH (23%)
 st.divider()
 suma_zaklad = total_items_sum + total_brand_price
 dph_hodnota = suma_zaklad * 0.23
@@ -217,14 +229,21 @@ suma_s_dph = suma_zaklad + dph_hodnota
 r1, r2 = st.columns([3, 2])
 with r2:
     st.markdown(f"""
-    | Popis | Suma |
-    | :--- | :--- |
-    | Suma položky: | {total_items_sum:.2f} € |
-    | Branding ({total_qty} ks): | {total_brand_price:.2f} € |
-    | **Základ DPH:** | **{suma_zaklad:.2f} €** |
-    | DPH (23%): | {dph_hodnota:.2f} € |
-    | **CELKOM S DPH:** | **{suma_s_dph:.2f} €** |
+    <table style="margin-top: 0; border: none;">
+        <tr><td style="text-align: left; border: none;">Suma položky:</td><td style="text-align: right; border: none;">{total_items_sum:.2f} €</td></tr>
+        <tr><td style="text-align: left; border: none;">Branding ({total_qty} ks):</td><td style="text-align: right; border: none;">{total_brand_price:.2f} €</td></tr>
+        <tr><td style="text-align: left; border: none;"><b>Základ DPH:</b></td><td style="text-align: right; border: none;"><b>{suma_zaklad:.2f} €</b></td></tr>
+        <tr><td style="text-align: left; border: none;">DPH (23%):</td><td style="text-align: right; border: none;">{dph_hodnota:.2f} €</td></tr>
+        <tr style="background-color: #eee;"><td style="text-align: left; border: none;"><b>CELKOM S DPH:</b></td><td style="text-align: right; border: none;"><b>{suma_s_dph:.2f} €</b></td></tr>
+    </table>
     """, unsafe_allow_html=True)
+
+# TERMÍNY
+st.divider()
+d1, d2, d3 = st.columns(3)
+with d1: st.date_input("Termín dodania vzorky")
+with d2: st.date_input("Termín dodania ponuky")
+with d3: st.date_input("Platnosť ponuky", value=datetime.now() + timedelta(days=7))
 
 # PÄTA - Fixná na každej strane
 st.markdown("""
