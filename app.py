@@ -5,26 +5,25 @@ import os
 import base64
 from datetime import datetime, timedelta
 
-# --- 1. KONFIGURÁCIA A BASE64 (Pre spoľahlivé zobrazenie loga) ---
+# --- 1. POMOCNÉ FUNKCIE (Logo a Obrázky) ---
 def get_base64_image(image_path):
     if os.path.exists(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     return None
 
-st.set_page_config(page_title="BRANDEX Ponuka", layout="wide")
-
-# Inicializácia pamäte
+# Inicializácia pamäte košíka
 if 'offer_items' not in st.session_state:
     st.session_state['offer_items'] = []
 
-# Načítanie loga (používame .PNG podľa zadania)
+# --- 2. NASTAVENIA STRÁNKY A CSS PRE TLAČ ---
+st.set_page_config(page_title="BRANDEX - Tvorba ponuky", layout="wide")
+
 logo_base64 = get_base64_image("brandex_logo.PNG")
 
-# --- 2. CSS PRE TLAČ A A4 VIZUÁL ---
 st.markdown(f"""
     <style>
-    /* Nastavenia pre obrazovku */
+    /* Štýl pre obrazovku */
     @media screen {{
         .paper {{
             background: white;
@@ -36,10 +35,9 @@ st.markdown(f"""
             color: black;
         }}
         .print-header {{ text-align: center; margin-bottom: 20px; }}
-        .footer-box {{ margin-top: 50px; border-top: 1px solid black; padding-top: 10px; text-align: center; }}
     }}
 
-    /* Nastavenia pre TLAČ (A4) */
+    /* Štýl pre TLAČ (A4) */
     @media print {{
         header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"] {{
             display: none !important;
@@ -49,11 +47,9 @@ st.markdown(f"""
             box-shadow: none !important; 
             width: 100% !important; 
             padding: 0 !important;
-            padding-top: 120px !important; /* Priestor pre fixnú hlavičku na každej strane */
-            padding-bottom: 80px !important; /* Priestor pre fixnú pätu na každej strane */
+            padding-top: 130px !important; /* Priestor pre fixné logo */
+            padding-bottom: 100px !important; /* Priestor pre fixnú pätu */
         }}
-        
-        /* Fixná hlavička na každej strane */
         .print-header {{
             position: fixed;
             top: 0;
@@ -62,9 +58,8 @@ st.markdown(f"""
             text-align: center;
             height: 100px;
             background: white;
+            z-index: 1000;
         }}
-        
-        /* Fixná päta na každej strane */
         .footer-box {{
             position: fixed;
             bottom: 0;
@@ -75,12 +70,12 @@ st.markdown(f"""
             padding: 10px 0;
             background: white;
             font-size: 10px;
+            z-index: 1000;
         }}
-        
         @page {{ size: A4; margin: 0; }}
     }}
 
-    /* Vycentrovaný veľký názov ponuky */
+    /* Vycentrovaný nadpis */
     .centered-title input {{
         font-size: 32px !important;
         font-weight: bold !important;
@@ -92,21 +87,23 @@ st.markdown(f"""
     }}
     
     table {{ width: 100%; border-collapse: collapse; margin-top: 20px; color: black; }}
-    th, td {{ border: 1px solid black; padding: 6px; text-align: center; font-size: 12px; }}
-    th {{ background-color: #f2f2f2; }}
+    th, td {{ border: 1px solid black; padding: 6px; text-align: center; font-size: 11px; }}
+    th {{ background-color: #f2f2f2; font-weight: bold; }}
+    .img-container {{ width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; }}
+    .img-container img {{ max-width: 65px; max-height: 65px; object-fit: contain; }}
     
-    .footer-box {{ font-size: 11px; line-height: 1.4; color: black; }}
+    .footer-box {{ font-size: 11px; line-height: 1.4; color: black; margin-top: 30px; }}
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. NAČÍTANIE EXCELU ---
+# --- 3. NAČÍTANIE EXCELU (A, F, G, H, N, Q) ---
 @st.cache_data
 def load_excel():
     file = "produkty.xlsx"
     if not os.path.exists(file): return pd.DataFrame()
     try:
+        # A=0, F=5, G=6, H=7, N=13, Q=16
         df = pd.read_excel(file, engine="openpyxl")
-        # Mapovanie stĺpcov: A(0), F(5), G(6), H(7), N(13), Q(16)
         df = df.iloc[:, [0, 5, 6, 7, 13, 16]]
         df.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
         return df
@@ -130,10 +127,15 @@ with st.sidebar:
         if st.button("➕ PRIDAŤ DO PONUKY"):
             for s in velkosti:
                 row = size_df[size_df['SIZE'] == s].iloc[0]
+                # Získame URL obrázka zo stĺpca Q
+                img_url = str(row['IMG_PRODUCT']).strip()
+                if img_url == 'nan' or not img_url.startswith('http'):
+                    img_url = ""
+
                 st.session_state['offer_items'].append({
                     "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
                     "ks": qty, "p": float(row['PRICE']), "z": disc,
-                    "img": str(row['IMG_PRODUCT'])
+                    "img": img_url
                 })
             st.rerun()
 
@@ -144,9 +146,9 @@ with st.sidebar:
 # --- 5. VIZUÁL PONUKY (A4) ---
 st.markdown('<div class="paper">', unsafe_allow_html=True)
 
-# HLAVIČKA (LOGO) - Fixná pri tlači
+# FIXNÁ HLAVIČKA (LOGO)
 if logo_base64:
-    st.markdown(f'<div class="print-header"><img src="data:image/png;base64,{logo_base64}" width="300"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="print-header"><img src="data:image/png;base64,{logo_base64}" width="280"></div>', unsafe_allow_html=True)
 else:
     st.markdown('<div class="print-header"><h2>BRANDEX</h2></div>', unsafe_allow_html=True)
 
@@ -170,6 +172,7 @@ if len(st.session_state['offer_items']) > 0:
     items_df = pd.DataFrame(st.session_state['offer_items'])
     html = '<table><thead><tr><th>Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava %</th><th>Suma</th></tr></thead><tbody>'
     
+    # Logika zoskupovania pre Rowspan (podľa modelu a farby)
     groups = items_df.groupby(['n', 'f'], sort=False).size().tolist()
     idx = 0
     for g_size in groups:
@@ -179,10 +182,12 @@ if len(st.session_state['offer_items']) > 0:
             row_sum = it['ks'] * final_p
             total_items_sum += row_sum
             total_qty += it['ks']
+            
             html += '<tr>'
             if i == 0:
-                img_url = it['img'] if it['img'] not in ['nan', 'None', ''] else ""
-                html += f'<td rowspan="{g_size}"><img src="{img_url}" width="60"></td>'
+                img_tag = f'<div class="img-container"><img src="{it["img"]}"></div>' if it["img"] else ""
+                html += f'<td rowspan="{g_size}">{img_tag}</td>'
+            
             html += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{row_sum:.2f} €</td></tr>"
             idx += 1
     html += '</tbody></table>'
@@ -193,7 +198,7 @@ st.divider()
 st.subheader("Branding")
 b1, b2, b3 = st.columns([2, 2, 1])
 with b1:
-    st.selectbox("Typ brandingu", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
+    st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
     st.text_area("Popis a umiestnenie", key="brand_desc")
 with b2:
     brand_unit_price = st.number_input("Cena brandingu na 1ks €", min_value=0.0, step=0.1, value=0.0)
@@ -214,13 +219,14 @@ with r2:
     st.markdown(f"""
     | Popis | Suma |
     | :--- | :--- |
-    | Suma tovar a branding: | {suma_zaklad:.2f} € |
+    | Suma položky: | {total_items_sum:.2f} € |
+    | Branding ({total_qty} ks): | {total_brand_price:.2f} € |
     | **Základ DPH:** | **{suma_zaklad:.2f} €** |
     | DPH (23%): | {dph_hodnota:.2f} € |
     | **CELKOM S DPH:** | **{suma_s_dph:.2f} €** |
     """, unsafe_allow_html=True)
 
-# PÄTA - Fixná pri tlači
+# PÄTA - Fixná na každej strane
 st.markdown("""
     <div class="footer-box">
         BRANDEX, s.r.o., Narcisova 1, 821 01 Bratislava | Prevádzka: Stará vajnorská 37, 831 04 Bratislava<br>
@@ -230,6 +236,6 @@ st.markdown("""
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- FUNKČNÉ TLAČIDLO TLAČE ---
+# --- TLAČIDLO TLAČE ---
 if st.button("🖨️ Tlačiť ponuku"):
     st.components.v1.html("<script>window.parent.window.print();</script>", height=0)
