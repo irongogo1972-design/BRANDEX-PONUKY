@@ -20,38 +20,43 @@ st.markdown("""
         }
     }
     @media print {
-        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"] {
+        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stChatMessage, .stChatInput {
             display: none !important;
         }
         .paper { margin: 0 !important; box-shadow: none !important; width: 100% !important; padding: 0 !important; }
-        .stMarkdown { margin: 0 !important; }
+        .stMarkdown, .element-container { margin: 0 !important; }
+        @page { size: A4; margin: 0; }
     }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    th, td { border: 1px solid #333; padding: 6px; text-align: center; font-size: 11px; }
+    th, td { border: 1px solid #000; padding: 4px; text-align: center; font-size: 11px; }
     th { background-color: #f2f2f2; font-weight: bold; }
-    .img-cell { width: 80px; }
+    .img-cell { width: 80px; vertical-align: middle; }
     .footer-text { font-size: 9px; text-align: center; margin-top: 30px; border-top: 1px solid #000; padding-top: 5px; line-height: 1.2; }
+    .centered-logo { display: block; margin-left: auto; margin-right: auto; width: 50%; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- 2. NAČÍTANIE DÁT ---
 @st.cache_data
 def load_data():
-    if not os.path.exists("produkty.xlsx"):
+    file_path = "produkty.xlsx"
+    if not os.path.exists(file_path):
         return pd.DataFrame()
     try:
-        df = pd.read_excel("produkty.xlsx", engine="openpyxl")
-        # Mapovanie stĺpcov: A=0, F=5, G=6, H=7, N=13, Q=16
+        df = pd.read_excel(file_path, engine="openpyxl")
+        # Výber stĺpcov podľa indexov: A(0), F(5), G(6), H(7), N(13), Q(16)
         df = df.iloc[:, [0, 5, 6, 7, 13, 16]]
         df.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
         return df
-    except:
+    except Exception as e:
+        st.error(f"Chyba pri čítaní Excelu: {e}")
         return pd.DataFrame()
 
 df = load_data()
 
 # Inicializácia session state
-if 'items' not in st.session_state: st.session_state.items = []
+if 'items' not in st.session_state:
+    st.session_state.items = []
 
 # --- 3. OVLÁDACÍ PANEL (SIDEBAR) ---
 with st.sidebar:
@@ -73,7 +78,7 @@ with st.sidebar:
                 row = size_df[size_df['SIZE'] == v].iloc[0]
                 img_url = str(row['IMG_PRODUCT']) if str(row['IMG_PRODUCT']) != 'nan' else ""
                 
-                new_item = {
+                st.session_state.items.append({
                     "kod": row['KOD_IT'],
                     "n": model,
                     "f": farba,
@@ -82,8 +87,7 @@ with st.sidebar:
                     "p": float(row['PRICE']),
                     "z": zlava,
                     "img": img_url
-                }
-                st.session_state.items.append(new_item)
+                })
             st.rerun()
     
     st.divider()
@@ -94,49 +98,57 @@ with st.sidebar:
 # --- 4. TVORBA VIZUÁLU A4 ---
 st.markdown('<div class="paper">', unsafe_allow_html=True)
 
-# Hlavička s logom
-c1, c2, c3 = st.columns([1,2,1])
-with c2:
-    if os.path.exists("brandex_logo.png"):
-        st.image("brandex_logo.png")
+# Logo (Vycentrované)
+# Skontrolujeme rôzne varianty názvu súboru
+logo_file = None
+for f in ["brandex_logo.png", "brandex_logo.PNG", "BRANDEX_LOGO.png"]:
+    if os.path.exists(f):
+        logo_file = f
+        break
+
+if logo_file:
+    st.image(logo_file, width=300)
+else:
+    st.markdown("<h2 style='text-align:center;'>BRANDEX</h2>", unsafe_allow_html=True)
 
 # Názov a Klient
-st.markdown("<br>", unsafe_allow_html=True)
-off_title = st.text_input("", "CENOVÁ PONUKA", key="t", help="Názov", label_visibility="collapsed")
+off_title = st.text_input("", "CENOVÁ PONUKA", key="t", label_visibility="collapsed")
 st.markdown(f"<h1 style='text-align: center; margin-top:0;'>{off_title}</h1>", unsafe_allow_html=True)
 
 col_k1, col_k2 = st.columns([1,1])
 with col_k1:
     st.markdown("**Pre koho:**")
-    c_firma = st.text_input("Firma", "Názov firmy", label_visibility="collapsed")
-    c_adr = st.text_input("Adresa", "Adresa", label_visibility="collapsed")
-    c_meno = st.text_input("Zástupca", "Meno zástupcu", label_visibility="collapsed")
+    st.text_input("Firma", "Názov firmy", label_visibility="collapsed")
+    st.text_input("Adresa", "Adresa", label_visibility="collapsed")
+    st.text_input("Zástupca", "Meno zástupcu", label_visibility="collapsed")
 
 # TABUĽKA POLOŽIEK
 if st.session_state.items:
-    # Zoskupenie pre rowspan (Model + Farba)
+    # Oprava ValueError: Vytvárame DF len ak sú dáta
     items_df = pd.DataFrame(st.session_state.items)
     
     html = """<table><thead><tr>
         <th>Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Suma</th>
     </tr></thead><tbody>"""
     
-    # Logika pre rowspan
-    groups = items_df.groupby(['n', 'f'], sort=False).size().tolist()
+    # Logika pre rowspan podľa Modelu a Farby
+    # Spočítame koľko riadkov má každá kombinácia (Model, Farba)
+    counts = items_df.groupby(['n', 'f'], sort=False).size().tolist()
+    
     curr_idx = 0
     total_sum = 0
 
-    for g_size in groups:
+    for g_size in counts:
         for i in range(g_size):
             item = st.session_state.items[curr_idx]
-            cena_ks = item['p'] * (1 - item['z']/100)
-            suma_riadok = item['ks'] * cena_ks
+            cena_po_zlave = item['p'] * (1 - item['z']/100)
+            suma_riadok = item['ks'] * cena_po_zlave
             total_sum += suma_riadok
             
             html += "<tr>"
-            # Obrázok len pre prvý riadok v skupine
+            # Obrázok sa zobrazí len pre prvý riadok v skupine a roztiahne sa (rowspan)
             if i == 0:
-                img_tag = f'<img src="{item["img"]}" width="50">' if item["img"] else ""
+                img_tag = f'<img src="{item["img"]}" width="50">' if item["img"] and item["img"] != "" else ""
                 html += f'<td rowspan="{g_size}" class="img-cell">{img_tag}</td>'
             
             html += f"""
@@ -155,15 +167,15 @@ if st.session_state.items:
     st.markdown(html, unsafe_allow_html=True)
     st.markdown(f"<h4 style='text-align: right;'>Celkom bez DPH: {total_sum:.2f} €</h4>", unsafe_allow_html=True)
 
-# BRANDING SEKCE
+# BRANDING
 st.divider()
 st.subheader("Branding")
 bc1, bc2, bc3 = st.columns([2,2,1])
 with bc1:
-    b_typ = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
-    b_popis = st.text_area("Popis a umiestnenie", placeholder="Napr. Výšivka loga na ľavé prsia, cca 8cm")
+    st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"])
+    st.text_area("Popis a umiestnenie", placeholder="Popis brandingu...")
 with bc2:
-    b_cena = st.number_input("Cena za branding celkom €", min_value=0.0, value=0.0)
+    st.number_input("Cena za branding celkom €", min_value=0.0, value=0.0)
     b_logo = st.file_uploader("Nahrať logo klienta", type=['png', 'jpg'])
 with bc3:
     if b_logo: st.image(b_logo, width=100)
@@ -187,8 +199,8 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # --- FIXNÉ TLAČIDLO TLAČE ---
 st.markdown("""
-    <div class="no-print" style="position: fixed; bottom: 20px; right: 20px;">
-        <button onclick="window.print()" style="padding: 10px 20px; background: #ff4b4b; color: white; border: none; border-radius: 5px; cursor: pointer;">
+    <div class="no-print" style="position: fixed; bottom: 20px; right: 20px; z-index: 1000;">
+        <button onclick="window.print()" style="padding: 15px 30px; background: #ff4b4b; color: white; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">
             🖨️ TLAČIŤ PONUKU (PDF)
         </button>
     </div>
