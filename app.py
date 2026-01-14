@@ -16,17 +16,20 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
+# Inicializácia pamäte
 if 'offer_items' not in st.session_state:
     st.session_state['offer_items'] = []
 
-# --- 2. NASTAVENIA STRÁNKY A DESIGN ---
-st.set_page_config(page_title="BRANDEX - Tvorba ponuky", layout="wide")
+# --- 2. NASTAVENIA STRÁNKY A AGRESÍVNY DESIGN ---
+st.set_page_config(page_title="BRANDEX Creator", layout="wide")
 
 logo_base64 = get_base64_image("brandex_logo.PNG")
 
 st.markdown(f"""
     <style>
+    /* Odstránenie Streamlit vizuálneho šumu */
     [data-testid="stAppViewBlockContainer"] {{ padding-top: 1rem !important; }}
+    [data-testid="stHeader"] {{ display: none; }}
     
     @media screen {{
         .paper {{
@@ -38,7 +41,7 @@ st.markdown(f"""
     }}
 
     @media print {{
-        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader {{
+        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader, .stDownloadButton {{
             display: none !important;
         }}
         .paper {{ 
@@ -50,45 +53,44 @@ st.markdown(f"""
             text-align: center; border-top: 1px solid black;
             padding: 5px 0; background: white; font-size: 9px;
         }}
-        /* Vynútenie dvoch stĺpcov pre logá a náhľady v tlači */
-        .print-row {{ display: flex !important; flex-direction: row !important; width: 100%; }}
-        .print-col {{ width: 50% !important; }}
-        
+        .print-col-container {{ display: flex !important; flex-direction: row !important; justify-content: space-between; }}
+        .print-col {{ width: 48% !important; }}
         @page {{ size: A4; margin: 1cm; }}
     }}
 
-    /* ODSTRÁNENIE ŠEDÝCH PLÔCH */
+    /* Úplné odstránenie šedých plôch zo vstupov */
     .stTextInput input, .stTextArea textarea, .stDateInput div, .stSelectbox div {{
         border: none !important; background-color: transparent !important;
         padding: 0 !important; color: black !important; box-shadow: none !important;
+        min-height: 20px !important;
     }}
-    div[data-baseweb="input"], div[data-baseweb="select"], div[data-baseweb="base-input"] {{
-        background-color: transparent !important; border: none !important;
+    
+    /* Vizuál hlavičky podľa predlohy */
+    .header-box {{ text-align: center; margin-bottom: 0px; padding: 0; }}
+    .header-box img {{ margin-bottom: -10px; }}
+    .main-title {{ 
+        font-size: 38px; font-weight: 900; letter-spacing: 2px;
+        margin-top: -15px; margin-bottom: 20px; text-align: center; 
     }}
 
-    .header-section {{ text-align: center; margin-bottom: 0px; }}
-    .main-title {{ font-size: 30px; font-weight: 900; margin-top: -10px; margin-bottom: 10px; text-align: center; }}
+    /* Sekcia ODBERATEĽ a PLATNOSŤ */
+    .info-row {{ display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px; }}
+    .client-section {{ width: 50%; font-size: 12px; line-height: 1.1; }}
+    .validity-section {{ width: 40%; text-align: right; font-size: 12px; }}
 
-    /* KOMPAKTNÝ ODBERATEĽ A PLATNOSŤ */
-    .client-box {{ font-size: 11px !important; color: black; line-height: 0.8 !important; }}
-    .client-box input {{ font-size: 11px !important; height: 14px !important; }}
-    .validity-box {{ text-align: right; font-size: 11px; }}
-    .validity-box div {{ text-align: right !important; }}
+    /* Tabuľka podľa predlohy */
+    .items-table {{ width: 100%; border-collapse: collapse; margin-top: 15px; color: black; }}
+    .items-table th, .items-table td {{ border: 1px solid #ddd; padding: 4px; text-align: center; font-size: 10px; }}
+    .items-table th {{ background-color: #f8f8f8; font-weight: bold; text-transform: uppercase; }}
+    .img-cell img {{ max-width: 60px; max-height: 100px; object-fit: contain; }}
 
-    /* Tabuľka */
-    .items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; table-layout: fixed; }}
-    .items-table th, .items-table td {{ border: 1px solid #ccc; padding: 3px; text-align: center; font-size: 10px; }}
-    .items-table th {{ background-color: #f2f2f2; font-weight: bold; }}
-    .img-cell img {{ max-width: 60px; max-height: 80px; object-fit: contain; }}
-
-    /* Sumár vpravo */
-    .summary-container {{ width: 100%; display: flex; justify-content: flex-end; }}
-    .summary-box {{ width: 250px; margin-top: 5px; font-size: 11px; }}
+    /* Sumárna tabuľka vpravo */
+    .summary-container {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
+    .summary-box {{ width: 260px; font-size: 11px; }}
     .summary-box table {{ border: none !important; width: 100%; }}
-    .summary-box td {{ border: none !important; text-align: right; padding: 1px; }}
+    .summary-box td {{ border: none !important; text-align: right; padding: 1px; border-bottom: 1px solid #eee !important; }}
 
-    .section-title {{ font-weight: bold; font-size: 12px; margin-top: 10px; text-transform: uppercase; border-bottom: 1px solid #eee; }}
-    .footer-box {{ font-size: 10px; text-align: center; color: black; line-height: 1.4; }}
+    .section-header {{ font-weight: bold; font-size: 14px; margin-top: 20px; border-bottom: 1px solid #333; }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -106,138 +108,150 @@ def load_excel():
 
 df_db = load_excel()
 
-# --- 4. SIDEBAR OVLÁDANIE ---
+# --- 4. SIDEBAR OVLÁDANIE (VRÁTENÁ EDITÁCIA) ---
 with st.sidebar:
-    st.header("📦 Pridať tovar")
-    proc_name = st.text_input("Vypracoval", placeholder="Vaše meno")
+    st.header("🛒 Správa položiek")
+    vypracoval = st.text_input("Ponuku vypracoval", placeholder="Vaše meno")
+    
     if not df_db.empty:
+        st.subheader("Pridať tovar")
         model = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
         sub_df = df_db[df_db['SKUPINOVY_NAZOV'] == model]
         farba = st.selectbox("Farba", sorted(sub_df['FARBA'].unique()))
         velkosti = st.multiselect("Veľkosti", sort_sizes(sub_df[sub_df['FARBA'] == farba]['SIZE'].unique()))
-        qty = st.number_input("Počet kusov", min_value=1, value=1)
+        qty = st.number_input("Počet ks", min_value=1, value=1)
         disc = st.number_input("Zľava %", min_value=0, max_value=100, value=0)
-        br_u = st.number_input("Branding / ks €", min_value=0.0, step=0.1, value=0.0)
-        link_img = st.text_input("Vlastný link na obrázok", placeholder="https://...")
+        br_ks = st.number_input("Branding/ks €", min_value=0.0, step=0.1, value=0.0)
+        img_link = st.text_input("Vlastný link na obrázok", placeholder="https://...")
         
         if st.button("➕ PRIDAŤ DO PONUKY"):
             for s in velkosti:
                 row = sub_df[(sub_df['FARBA'] == farba) & (sub_df['SIZE'] == s)].iloc[0]
-                img_f = link_img if link_img else str(row['IMG_PRODUCT'])
+                img_f = img_link if img_link else str(row['IMG_PRODUCT'])
                 if img_f == 'nan' or not img_f.startswith('http'): img_f = ""
                 st.session_state['offer_items'].append({
                     "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
-                    "ks": qty, "p": float(row['PRICE']), "z": disc, "img": img_f, "br": br_u
+                    "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_ks, "img": img_f
                 })
             st.rerun()
 
     if st.session_state['offer_items']:
-        if st.button("🗑️ VYMAZAŤ VŠETKO"):
+        st.divider()
+        st.subheader("Editácia / Mazanie")
+        for idx, item in enumerate(st.session_state['offer_items']):
+            col_d1, col_d2 = st.columns([3, 1])
+            col_d1.write(f"{item['kod']} ({item['v']})")
+            if col_d2.button("🗑️", key=f"del_{idx}"):
+                st.session_state['offer_items'].pop(idx)
+                st.rerun()
+        
+        if st.button("❌ VYMAZAŤ CELÚ PONUKU"):
             st.session_state['offer_items'] = []
             st.rerun()
 
-# --- 5. VIZUÁL A4 ---
+# --- 5. DOKUMENT A4 ---
 st.markdown('<div class="paper">', unsafe_allow_html=True)
 
-# HLAVIČKA
+# HLAVIČKA (Logo + PONUKA)
 if logo_base64:
-    st.markdown(f'<div class="header-section"><img src="data:image/png;base64,{logo_base64}" width="260"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="header-box"><img src="data:image/png;base64,{logo_base64}" width="300"></div>', unsafe_allow_html=True)
 st.markdown('<div class="main-title">PONUKA</div>', unsafe_allow_html=True)
 
-# ODBERATEĽ & PLATNOSŤ (Zarovnané v jednom riadku)
-c_info_l, c_info_r = st.columns([1.5, 1])
-with c_info_l:
-    st.markdown("<div class='client-box'><b>PRE :</b>", unsafe_allow_html=True)
-    st.text_input("Firma", "Názov firmy", key="c_f", label_visibility="collapsed")
-    st.text_input("Adresa", "Adresa", key="c_a", label_visibility="collapsed")
-    st.text_input("Kontakt", "Kontaktná osoba", key="c_o", label_visibility="collapsed")
+# ODBERATEĽ A PLATNOSŤ
+st.markdown('<div class="info-row">', unsafe_allow_html=True)
+col_l, col_r = st.columns([1.5, 1])
+with col_l:
+    st.markdown("<div class='client-section'><b>PRE :</b>", unsafe_allow_html=True)
+    st.text_input("Názov firmy", "Názov firmy", key="f1", label_visibility="collapsed")
+    st.text_input("Adresa", "Adresa", key="f2", label_visibility="collapsed")
+    st.text_input("Kontakt", "Kontaktná osoba", key="f3", label_visibility="collapsed")
     st.markdown("</div>", unsafe_allow_html=True)
-with c_info_r:
-    st.markdown("<div class='validity-box'><b>Platnosť ponuky do :</b>", unsafe_allow_html=True)
-    st.date_input("Platnosť", value=datetime.now() + timedelta(days=14), label_visibility="collapsed")
+with col_r:
+    st.markdown("<div class='validity-section'>Platnosť ponuky do :", unsafe_allow_html=True)
+    st.date_input("Dátum", value=datetime.now() + timedelta(days=14), label_visibility="collapsed")
     st.markdown("</div>", unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 # POLOŽKY
-st.markdown("<div class='section-title'>POLOŽKY</div>", unsafe_allow_html=True)
-total_i_net = 0
-total_b_net = 0
+st.markdown("<div class='section-header'>POLOŽKY</div>", unsafe_allow_html=True)
+total_i = 0
+total_b = 0
 
 if st.session_state['offer_items']:
     items_df = pd.DataFrame(st.session_state['offer_items'])
-    html_table = '<table class="items-table"><thead><tr>'
-    html_table += '<th style="width:70px;">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th>'
-    html_table += '</tr></thead><tbody>'
+    html = '<table class="items-table"><thead><tr>'
+    html += '<th style="width:70px;">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th>'
+    html += '</tr></thead><tbody>'
     
     groups = items_df.groupby(['n', 'f'], sort=False).size().tolist()
     idx = 0
     for g_size in groups:
         for i in range(g_size):
             it = st.session_state['offer_items'][idx]
-            p_disc = it['p'] * (1 - it['z']/100)
-            row_tot = it['ks'] * (p_disc + it['br'])
-            total_i_net += (it['ks'] * p_disc)
-            total_b_net += (it['ks'] * it['br'])
-            html_table += '<tr>'
+            p_z = it['p'] * (1 - it['z']/100)
+            line_sum = it['ks'] * (p_z + it['br'])
+            total_i += (it['ks'] * p_disc) if 'p_disc' in locals() else (it['ks'] * p_z)
+            total_b += (it['ks'] * it['br'])
+            html += '<tr>'
             if i == 0:
-                html_table += f'<td rowspan="{g_size}" class="img-cell"><img src="{it["img"]}"></td>'
-            html_table += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{it['br']:.2f} €</td><td>{row_tot:.2f} €</td></tr>"
+                html += f'<td rowspan="{g_size}" class="img-cell"><img src="{it["img"]}"></td>'
+            html += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{it['br']:.2f} €</td><td>{line_sum:.2f} €</td></tr>"
             idx += 1
-    html_table += '</tbody></table>'
-    st.markdown(html_table, unsafe_allow_html=True)
+    html += '</tbody></table>'
+    st.markdown(html, unsafe_allow_html=True)
 
-    # SUMÁR
-    sum_z = total_i_net + total_b_net
+    # SUMARIZÁCIA
+    z_dph = total_i + total_b
     st.markdown(f"""
     <div class="summary-container">
         <div class="summary-box">
             <table>
-                <tr><td>Suma položiek bez DPH:</td><td>{total_i_net:.2f} €</td></tr>
-                <tr><td>Branding celkom bez DPH:</td><td>{total_b_net:.2f} €</td></tr>
-                <tr><td><b>Základ DPH:</b></td><td><b>{sum_z:.2f} €</b></td></tr>
-                <tr><td>DPH (23%):</td><td>{sum_z * 0.23:.2f} €</td></tr>
-                <tr style="background-color:#eee; font-weight:bold;"><td>CELKOM S DPH:</td><td>{sum_z * 1.23:.2f} €</td></tr>
+                <tr><td>Suma položiek bez DPH:</td><td>{total_i:.2f} €</td></tr>
+                <tr><td>Branding celkom bez DPH:</td><td>{total_b:.2f} €</td></tr>
+                <tr><td><b>Základ DPH:</b></td><td><b>{z_dph:.2f} €</b></td></tr>
+                <tr><td>DPH (23%):</td><td>{z_dph * 0.23:.2f} €</td></tr>
+                <tr style="background-color:#eee; font-weight:bold;"><td>CELKOM S DPH:</td><td>{z_dph * 1.23:.2f} €</td></tr>
             </table>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
 # BRANDING
-st.markdown("<div class='section-title'>BRANDING</div>", unsafe_allow_html=True)
-b_c1, b_c2, b_c3 = st.columns([1, 2, 1.5])
-with b_c1:
-    st.markdown("<small>Technológia</small>", unsafe_allow_html=True)
+st.markdown("<div class='section-header'>BRANDING</div>", unsafe_allow_html=True)
+b_col1, b_col2, b_col3 = st.columns([1, 2, 1.5])
+with b_col1:
+    st.markdown("Technológia")
     st.selectbox("Typ", ["Sieťotlač", "Výšivka", "Subli", "Tampoprint", "DTF", "DTG"], label_visibility="collapsed")
-with b_c2:
-    st.markdown("<small>Popis</small>", unsafe_allow_html=True)
-    st.text_area("Popis", placeholder="Umiestnenie...", label_visibility="collapsed", height=65)
-with b_c3:
-    st.markdown("<small>Dodanie vzorky</small>", unsafe_allow_html=True)
-    st.date_input("Vzorka", label_visibility="collapsed")
+with b_col2:
+    st.markdown("Popis")
+    st.text_area("Popis", placeholder="Popis brandingu...", label_visibility="collapsed", height=65)
+with b_col3:
+    st.markdown("Dodanie vzorky")
+    st.date_input("Vzorka", label_visibility="collapsed", key="vzor")
 
-# LOGO A NÁHĽAD (Vynútené vedľa seba v tlači)
-st.markdown('<div class="print-row">', unsafe_allow_html=True)
+# LOGO A NÁHĽAD (Vedľa seba v tlači)
+st.markdown('<div class="print-col-container">', unsafe_allow_html=True)
 l_col, n_col = st.columns(2)
 with l_col:
-    st.markdown("<div class='print-col'><div class='section-title'>LOGO</div>", unsafe_allow_html=True)
-    upl_l = st.file_uploader("Logo", accept_multiple_files=True, key="l", label_visibility="collapsed")
+    st.markdown("<div class='print-col'><div class='section-header'>LOGO</div>", unsafe_allow_html=True)
+    upl_l = st.file_uploader("L", accept_multiple_files=True, key="upl_l", label_visibility="collapsed")
     if upl_l:
-        cols = st.columns(len(upl_l))
+        cols = st.columns(2)
         for i, f in enumerate(upl_l[:2]): cols[i].image(f, width=100)
     st.markdown("</div>", unsafe_allow_html=True)
 with n_col:
-    st.markdown("<div class='print-col'><div class='section-title'>NÁHĽAD</div>", unsafe_allow_html=True)
-    upl_n = st.file_uploader("Náhľad", accept_multiple_files=True, key="n", label_visibility="collapsed")
+    st.markdown("<div class='print-col'><div class='section-header'>NÁHĽAD</div>", unsafe_allow_html=True)
+    upl_n = st.file_uploader("N", accept_multiple_files=True, key="upl_n", label_visibility="collapsed")
     if upl_n:
-        cols = st.columns(len(upl_n))
+        cols = st.columns(2)
         for i, f in enumerate(upl_n[:2]): cols[i].image(f, width=100)
     st.markdown("</div>", unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# VYPRACCOVAL
+# SPRACCOVATEĽ
 v1, v2 = st.columns([2, 1])
 with v2:
-    st.markdown("<div style='text-align:right; margin-top:20px; font-size:11px;'><b>Vypracoval:</b></div>", unsafe_allow_html=True)
-    st.markdown(f"<div style='text-align:right; font-size:12px;'>{proc_name}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div style='text-align:right; margin-top:30px; font-size:12px;'><b>Vypracoval:</b><br>{vypracoval}</div>", unsafe_allow_html=True)
 
 # PÄTA
 st.markdown("""
@@ -249,6 +263,6 @@ st.markdown("""
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# --- FUNKČNÉ TLAČIDLO TLAČE ---
-if st.button("🖨️ Tlačiť ponuku"):
+# --- FIXNÉ TLAČIDLO TLAČE ---
+if st.button("🖨️ TLAČIŤ PONUKU"):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
