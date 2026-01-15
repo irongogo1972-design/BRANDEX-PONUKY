@@ -16,57 +16,40 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# Inicializácia pamäte hneď na začiatku
+# Inicializácia pamäte
 if 'offer_items' not in st.session_state:
     st.session_state['offer_items'] = []
+if 'proc_name' not in st.session_state:
+    st.session_state['proc_name'] = ""
 
-# --- 2. KONFIGURÁCIA STRÁNKY ---
-st.set_page_config(
-    page_title="BRANDEX Creator", 
-    layout="wide", 
-    initial_sidebar_state="expanded"  # VYNÚTENÉ OTVORENIE
-)
+# --- 2. NASTAVENIA STRÁNKY A AGRESÍVNE CSS ---
+st.set_page_config(page_title="BRANDEX Creator", layout="wide", initial_sidebar_state="expanded")
 
 logo_base64 = get_base64_image("brandex_logo.PNG")
 
-# --- 3. AGRESÍVNE CSS PRE LAYOUT A ČISTOTU ---
 st.markdown(f"""
 <style>
-    /* 1. ZOBRAZENIE SIDEBARU A ŠÍPKY */
-    [data-testid="stSidebarNav"] {{ display: block !important; }}
-    [data-testid="collapsedControl"] {{
-        display: flex !important;
-        visibility: visible !important;
-        background-color: #ff4b4b !important;
-        color: white !important;
-        top: 10px !important;
-        left: 10px !important;
+    /* ODSTRÁNENIE SYSTÉMOVÉHO ODSADENIA HORE */
+    [data-testid="stAppViewBlockContainer"] {{ 
+        padding-top: 0rem !important; 
+        padding-bottom: 0rem !important;
     }}
-
-    /* 2. ODSTRÁNENIE ŠEDÝCH PLÔCH A MEDZIER */
-    [data-testid="stAppViewBlockContainer"] {{ padding-top: 0rem !important; }}
     [data-testid="stHeader"] {{ display: none !important; }}
-    
-    .stTextInput input, .stTextArea textarea, .stDateInput div, .stSelectbox div {{
-        border: none !important; background-color: transparent !important;
-        padding: 0 !important; color: black !important; box-shadow: none !important;
-    }}
-    div[data-baseweb="input"], div[data-baseweb="select"] {{
-        background: transparent !important; border: none !important;
-    }}
+    [data-testid="stToolbar"] {{ display: none !important; }}
 
-    /* 3. PAPIER A4 */
+    /* PAPIER NA OBRAZOVKE */
     @media screen {{
         .paper {{
             background: white; width: 210mm; min-height: 297mm;
-            padding: 5mm 15mm; margin: 0 auto;
+            padding: 5mm 15mm; margin: 0px auto;
             box-shadow: 0 0 15px rgba(0,0,0,0.2); color: black;
             font-family: 'Arial', sans-serif;
         }}
     }}
 
+    /* NASTAVENIA TLAČE */
     @media print {{
-        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploadDropzone {{
+        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"] {{
             display: none !important;
         }}
         .paper {{ 
@@ -81,19 +64,27 @@ st.markdown(f"""
         @page {{ size: A4; margin: 1cm; }}
     }}
 
-    /* 4. LAYOUT HLAVIČKY */
-    .header-wrapper {{ text-align: center; margin-bottom: -15px; }}
-    .main-title-text {{ font-size: 32px; font-weight: bold; text-transform: uppercase; margin: 0; }}
+    /* ODSTRÁNENIE ŠEDÝCH PLÔCH */
+    .stTextInput input, .stTextArea textarea, .stDateInput div, .stSelectbox div {{
+        border: none !important; background: transparent !important;
+        padding: 0 !important; color: black !important; box-shadow: none !important;
+    }}
+    div[data-baseweb="input"], div[data-baseweb="select"] {{
+        background: transparent !important; border: none !important;
+    }}
 
-    .flex-row {{ display: flex; justify-content: space-between; align-items: flex-start; margin-top: 10px; }}
-    .client-box {{ width: 55%; font-size: 11px; line-height: 0.9 !important; text-align: left; }}
-    
-    .right-info-box {{ width: 40%; text-align: right !important; font-size: 11px; line-height: 0.9; }}
-    .right-info-box input {{ text-align: right !important; border: none !important; }}
-    
+    .header-wrapper {{ text-align: center; margin-bottom: -15px; }}
+    .main-title-text {{ font-size: 32px; font-weight: bold; text-align: center; text-transform: uppercase; margin: 0; }}
+
+    /* ODBERATEĽ A PRAVÝ BLOK */
+    .info-table {{ width: 100%; border: none !important; }}
+    .info-table td {{ border: none !important; vertical-align: top; padding: 0; }}
+    .client-box {{ font-size: 11px; text-align: left; line-height: 0.9; }}
+    .right-info-box {{ font-size: 11px; text-align: right; line-height: 0.9; }}
+
     /* TABUĽKA */
-    table {{ width: 100%; border-collapse: collapse; margin-top: 15px; color: black; table-layout: fixed; }}
-    th, td {{ border: 1px solid #999; padding: 4px; text-align: center; font-size: 10px; }}
+    table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 15px; color: black; table-layout: fixed; }}
+    table.items-table th, table.items-table td {{ border: 1px solid #999; padding: 4px; text-align: center; font-size: 10px; }}
     th {{ background-color: #f2f2f2; font-weight: bold; }}
     .img-cell img {{ max-width: 100px; max-height: 180px; object-fit: contain; }}
 
@@ -104,7 +95,7 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# --- 4. NAČÍTANIE EXCELU ---
+# --- 3. NAČÍTANIE EXCELU ---
 @st.cache_data
 def load_excel():
     file = "produkty.xlsx"
@@ -118,10 +109,10 @@ def load_excel():
 
 df_db = load_excel()
 
-# --- 5. SIDEBAR OVLÁDANIE ---
+# --- 4. SIDEBAR OVLÁDANIE ---
 with st.sidebar:
     st.header("⚙️ Ovládanie")
-    proc_name = st.text_input("Ponuku vypracoval", placeholder="Vaše meno")
+    st.session_state['proc_name'] = st.text_input("Vypracoval (Meno)", value=st.session_state['proc_name'])
     
     if not df_db.empty:
         st.subheader("➕ Pridať položku")
@@ -147,24 +138,20 @@ with st.sidebar:
 
     if st.session_state['offer_items']:
         st.divider()
-        if st.button("❌ VYMAZAŤ CELÚ PONUKU"):
+        if st.button("❌ VYMAZAŤ VŠETKO"):
             st.session_state['offer_items'] = []
             st.rerun()
 
-# --- 6. DOKUMENT A4 ---
-# ZÁCHRANNÉ TLAČIDLO (Len ak by sidebar zmizol)
-if st.button("🆘 OTVORIŤ OVLÁDACÍ PANEL", key="rescue_btn", help="Kliknite sem, ak nevidíte bočný panel"):
-    st.components.v1.html("<script>window.parent.document.querySelector('.stSidebar').style.visibility='visible';</script>", height=0)
-
+# --- 5. DOKUMENT A4 ---
 st.markdown('<div class="paper">', unsafe_allow_html=True)
 
 # HLAVIČKA
 if logo_base64:
     st.markdown(f'<div class="header-wrapper"><img src="data:image/png;base64,{logo_base64}" width="220"><div class="main-title-text">PONUKA</div></div>', unsafe_allow_html=True)
 
-# ODBERATEĽ (VĽAVO) & PLATNOSŤ + VYPRACCOVAL (VPRAVO)
+# ODBERATEĽ (VĽAVO) & PLATNOSŤ + VYPRACOVAL (VPRAVO)
 st.write("")
-col_l, col_r = st.columns([1.2, 1])
+col_l, col_r = st.columns([1.5, 1])
 with col_l:
     st.markdown("<div class='client-box'><b>ODBERATEĽ :</b>", unsafe_allow_html=True)
     st.text_input("Firma", "Názov firmy", key="cf", label_visibility="collapsed")
@@ -176,7 +163,8 @@ with col_r:
     st.markdown("<div class='right-info-box'><b>PLATNOSŤ PONUKY DO :</b>", unsafe_allow_html=True)
     st.date_input("Dátum", value=datetime.now() + timedelta(days=14), label_visibility="collapsed", key="v_date")
     st.markdown("<br><b>VYPRACOVAL :</b>", unsafe_allow_html=True)
-    st.text_input("Meno", "Meno a priezvisko", key="proc_name_val", label_visibility="collapsed", value=proc_name if 'proc_name' in locals() else "")
+    # OPRAVA TYPERROR:
+    st.text_input("Meno spracovatela", value=st.session_state['proc_name'], key="proc_disp", label_visibility="collapsed")
     st.markdown("</div>", unsafe_allow_html=True)
 
 # TABUĽKA
@@ -184,7 +172,7 @@ total_i_net = 0
 total_b_net = 0
 if st.session_state['offer_items']:
     items_df = pd.DataFrame(st.session_state['offer_items'])
-    html = '<table><thead><tr><th style="width:100px;">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava %</th><th>Branding</th><th>Suma bez DPH</th></tr></thead><tbody>'
+    html = '<table class="items-table"><thead><tr><th style="width:100px;">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava %</th><th>Branding</th><th>Suma bez DPH</th></tr></thead><tbody>'
     groups = items_df.groupby(['n', 'f'], sort=False).size().tolist()
     idx = 0
     for g_size in groups:
@@ -203,7 +191,7 @@ if st.session_state['offer_items']:
     html += '</tbody></table>'
     st.markdown(html, unsafe_allow_html=True)
 
-    # SUMÁR (DPH 23%)
+    # SUMÁR
     sum_z = total_i_net + total_b_net
     st.markdown(f"""
     <div class="summary-container">
@@ -217,13 +205,12 @@ if st.session_state['offer_items']:
     </div>
     """, unsafe_allow_html=True)
 
-# ŠPECIFIKÁCIA BRANDINGU, LOGO, NÁHĽAD (Vedľa seba v tlači)
-st.write("")
+# BRANDING, LOGO, NÁHĽAD (Spodná časť)
 st.markdown("<div style='font-weight:bold; font-size:12px; margin-top:10px; border-bottom: 1px solid #eee;'>BRANDING</div>", unsafe_allow_html=True)
-b_col1, b_col2, b_col3 = st.columns([1, 2, 1])
-with b_col1: st.selectbox("T", ["Sieťotlač", "Výšivka", "DTF", "Laser"], label_visibility="collapsed", key="bt")
-with b_col2: st.text_area("P", placeholder="Popis umiestnenia...", label_visibility="collapsed", height=60, key="bd")
-with b_col3: st.date_input("V", label_visibility="collapsed", key="bs")
+b_c1, b_c2, b_c3 = st.columns([1, 2, 1])
+with b_c1: st.selectbox("T", ["Sieťotlač", "Výšivka", "DTF", "Laser"], label_visibility="collapsed", key="bt")
+with b_c2: st.text_area("P", placeholder="Popis umiestnenia...", label_visibility="collapsed", height=60, key="bd")
+with b_c3: st.date_input("V", label_visibility="collapsed", key="bs")
 
 col_l, col_n = st.columns(2)
 with col_l:
