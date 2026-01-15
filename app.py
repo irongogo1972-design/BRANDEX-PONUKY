@@ -1,11 +1,12 @@
-﻿# -*- coding: utf-8 -*-
+﻿
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import os
 import base64
 from datetime import datetime, timedelta
 
-# --- 1. POMOCNÉ FUNKCIE (OPTIMALIZÁCIA) ---
+# --- 1. POMOCNÉ FUNKCIE ---
 @st.cache_data
 def get_base64_image(image_path):
     if os.path.exists(image_path):
@@ -22,10 +23,8 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# Inicializácia pamäte hneď na začiatku
+# Inicializácia pamäte (Session State)
 if 'offer_items' not in st.session_state: st.session_state['offer_items'] = []
-if 'client' not in st.session_state: 
-    st.session_state['client'] = {"firma": "", "adresa": "", "osoba": "", "platnost": datetime.now() + timedelta(days=14), "vypracoval": ""}
 
 # --- 2. NASTAVENIA STRÁNKY A AGRESÍVNE CSS ---
 st.set_page_config(page_title="Brandex Creator", layout="wide", initial_sidebar_state="expanded")
@@ -34,15 +33,20 @@ logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
 st.markdown(f"""
 <style>
-    /* ODSTRÁNENIE SYSTÉMOVÉHO DESIGNU STREAMLITU */
+    /* Reset Streamlit UI balastu */
     [data-testid="stAppViewBlockContainer"] {{ padding: 0 !important; }}
     [data-testid="stHeader"] {{ display: none !important; }}
     [data-testid="stVerticalBlock"] {{ gap: 0rem !important; }}
     
-    /* PAPIER A4 */
+    /* ODSTRÁNENIE ŠEDÝCH PLÔCH Z FORMULÁRA */
+    .stTextInput div, .stTextArea div, .stDateInput div, .stSelectbox div {{
+        background-color: transparent !important; border: none !important; box-shadow: none !important;
+    }}
+    
+    /* VIZUÁL PAPIERA */
     .paper {{
         background: white; width: 210mm; min-height: 297mm;
-        padding: 15mm; margin: 10px auto;
+        padding: 12mm 15mm; margin: 0 auto;
         box-shadow: 0 0 10px rgba(0,0,0,0.1);
         color: black; font-family: "Arial", sans-serif;
     }}
@@ -60,54 +64,52 @@ st.markdown(f"""
         @page {{ size: A4; margin: 1cm; }}
     }}
 
-    /* HLAVIČKA */
-    .header {{ text-align: center; margin-bottom: 5px; }}
-    .header img {{ width: 220px; }} /* LOGO NA 220PX */
-    .main-title {{ font-size: 32px; font-weight: bold; text-align: center; text-transform: uppercase; margin: 0 0 15px 0; }}
+    /* HLAVIČKA A NADPIS */
+    .header {{ text-align: center; margin-bottom: 0px; }}
+    .header img {{ width: 220px; }}
+    .main-title {{ font-size: 32px; font-weight: bold; text-align: center; text-transform: uppercase; margin-top: -10px; margin-bottom: 10px; }}
 
-    /* INFO SEKCE */
-    .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 12px; }}
-    .info-left {{ width: 55%; text-align: left; }}
-    .info-right {{ width: 40%; text-align: right; }}
+    /* ORANŽOVÉ ČIARY */
+    .orange-line {{ border-top: 2px solid #FF8C00; margin: 10px 0; }}
 
-    /* TABUĽKA */
+    /* INFO SEKCE (ODBERATEĽ / PLATNOSŤ) */
+    .info-grid {{ display: flex; justify-content: space-between; align-items: flex-start; margin-top: 15px; font-size: 12px; }}
+    .info-left {{ width: 55%; text-align: left; line-height: 1.1; }}
+    .info-right {{ width: 40%; text-align: right; line-height: 1.1; }}
+
+    /* TABUĽKA POLOŽIEK */
     .items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; }}
     .items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 5px; font-size: 10px; text-transform: uppercase; }}
     .items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 10px; vertical-align: middle; }}
-    .img-cell img {{ max-width: 75px; max-height: 100px; object-fit: contain; }}
+    .img-cell img {{ max-width: 80px; max-height: 110px; object-fit: contain; }}
 
-    /* SUMÁR */
+    /* SUMÁR ÚPLNE VPRAVO */
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
-    .summary-table {{ width: 280px; border-collapse: collapse; }}
-    .summary-table td {{ border-bottom: 1px solid #eee; padding: 3px 8px; text-align: right; font-size: 12px; }}
+    .summary-table {{ width: 280px; border-collapse: collapse; border: none !important; }}
+    .summary-table td {{ border-bottom: 1px solid #eee !important; padding: 3px 8px; text-align: right; font-size: 11px; }}
     .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
-    /* ORANŽOVÉ ČIARY A NADPISY */
-    .section-header {{ 
-        font-weight: bold; font-size: 13px; margin-top: 20px; 
-        border-bottom: 2px solid #FF8C00; padding-bottom: 3px; text-transform: uppercase; 
-    }}
-    
-    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
-    .graphics-row {{ display: flex; gap: 20px; margin-top: 10px; }}
-    .graphic-col {{ width: 48%; display: flex; flex-direction: column; gap: 10px; }}
-    .graphic-box {{ border: 1px dashed #ccc; padding: 10px; text-align: center; min-height: 110px; }}
-    .graphic-box img {{ max-width: 100%; max-height: 130px; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto; }}
+    /* BRANDING A GRAFIKA */
+    .section-title {{ font-weight: bold; font-size: 12px; margin-top: 15px; text-transform: uppercase; }}
+    .graphics-container {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
+    .graphic-column {{ width: 48%; display: flex; flex-direction: column; gap: 5px; }}
+    .graphic-box {{ border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 100px; }}
+    .graphic-box img {{ max-width: 100%; max-height: 140px; display: block; margin: 5px auto; }}
 
-    .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 40px; padding-top: 5px; }}
+    .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 30px; padding-top: 5px; line-height: 1.4; }}
 </style>
 """, unsafe_allow_html=True)
 
 # --- 3. SIDEBAR (VŠETKY VSTUPY) ---
 with st.sidebar:
-    st.title("Brandex Editor")
+    st.title("👔 Brandex Editor")
     
-    with st.expander("👤 Odberateľ", expanded=False):
-        c_firma = st.text_input("Názov firmy", "")
+    with st.expander("👤 Odberateľ a Spracovateľ", expanded=False):
+        c_firma = st.text_input("Firma", "")
         c_adresa = st.text_area("Adresa", "")
-        c_osoba = st.text_input("Kontakt")
+        c_osoba = st.text_input("Kontaktná osoba")
         c_platnost = st.date_input("Platnosť ponuky do", datetime.now() + timedelta(days=14))
-        c_vypracoval = st.text_input("Ponuku vypracoval")
+        c_vypracoval = st.text_input("Ponuku vypracoval (Meno a email)")
 
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
@@ -120,29 +122,30 @@ with st.sidebar:
             velkosti = st.multiselect("Veľkosti", sort_sizes(sub[sub['FARBA'] == farba]['SIZE'].unique()))
             qty = st.number_input("Počet ks", 1, 5000, 1)
             disc = st.number_input("Zľava %", 0, 100, 0)
-            br_u = st.number_input("Branding/ks €", 0.0, 50.0, 0.0)
+            br_u = st.number_input("Branding/ks €", 0.0, 50.0, 0.0, step=0.1)
             link_img = st.text_input("Link na obrázok (voliteľné)")
             
             if st.button("PRIDAŤ DO TABUĽKY"):
                 for s in velkosti:
                     row = sub[(sub['FARBA'] == farba) & (sub['SIZE'] == s)].iloc[0]
                     img = link_img if link_img else str(row['IMG_PRODUCT'])
-                    st.session_state.offer_items.append({
-                        "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
-                        "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": img
-                    })
+                    if not any(item['kod'] == row['KOD_IT'] and item['v'] == s for item in st.session_state.offer_items):
+                        st.session_state.offer_items.append({
+                            "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
+                            "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": img
+                        })
                 st.rerun()
 
     with st.expander("🎨 Branding a Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
-        b_desc = st.text_area("Popis umiestnenia")
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
+        b_desc = st.text_area("Popis")
         b_date = st.date_input("Dodanie vzorky", datetime.now())
-        upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg'], accept_multiple_files=True)
-        upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg'], accept_multiple_files=True)
+        upl_logos = st.file_uploader("LOGO KLIENTA (viac)", type=['png','jpg','jpeg'], accept_multiple_files=True)
+        upl_previews = st.file_uploader("NÁHĽAD GRAFIKY (viac)", type=['png','jpg','jpeg'], accept_multiple_files=True)
 
     if st.session_state.offer_items:
         st.divider()
-        if st.button("🗑️ Vymazať všetko"):
+        if st.button("🗑️ VYMAZAŤ CELÚ PONUKU"):
             st.session_state.offer_items = []
             st.rerun()
         for idx, item in enumerate(st.session_state.offer_items):
@@ -151,14 +154,10 @@ with st.sidebar:
                 st.rerun()
 
 # --- 4. ZOSTAVENIE HTML VÝSTUPU ---
-# Logá
-html_logos = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_logos]) if upl_logos else ""
-html_previews = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_previews]) if upl_previews else ""
-
-# Tabuľka
+# Spracovanie riadkov tabuľky
 table_body = ""
-total_items = 0
-total_brand = 0
+total_items_net = 0
+total_brand_net = 0
 
 if st.session_state.offer_items:
     df_items = pd.DataFrame(st.session_state.offer_items)
@@ -169,8 +168,8 @@ if st.session_state.offer_items:
             it = st.session_state.offer_items[idx]
             pz = it['p'] * (1 - it['z']/100)
             row_sum = it['ks'] * (pz + it['br'])
-            total_items += (it['ks'] * pz)
-            total_brand += (it['ks'] * it['br'])
+            total_items_net += (it['ks'] * pz)
+            total_brand_net += (it['ks'] * it['br'])
             
             row_html = "<tr>"
             if i == 0:
@@ -180,10 +179,14 @@ if st.session_state.offer_items:
             table_body += row_html
             idx += 1
 
-sum_vat_base = total_items + total_brand
+sum_vat_base = total_items_net + total_brand_net
 
-# FINÁLNY DOKUMENT
-final_document = f"""
+# Logá a Náhľady
+html_logos = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_logos]) if upl_logos else ""
+html_previews = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_previews]) if upl_previews else ""
+
+# KONŠTRUKCIA FINÁLNEHO HTML
+doc_html = f"""
 <div class="paper">
     <div class="header">
         <img src="data:image/png;base64,{logo_main_b64 if logo_main_b64 else ''}">
@@ -220,8 +223,8 @@ final_document = f"""
 
     <div class="summary-wrapper">
         <table class="summary-table">
-            <tr><td>Suma položiek bez DPH:</td><td>{total_items:.2f} €</td></tr>
-            <tr><td>Branding celkom bez DPH:</td><td>{total_brand:.2f} €</td></tr>
+            <tr><td>Suma položiek bez DPH:</td><td>{total_items_net:.2f} €</td></tr>
+            <tr><td>Branding celkom bez DPH:</td><td>{total_brand_net:.2f} €</td></tr>
             <tr class="total-row"><td>Základ DPH:</td><td>{sum_vat_base:.2f} €</td></tr>
             <tr><td>DPH (23%):</td><td>{sum_vat_base * 0.23:.2f} €</td></tr>
             <tr class="total-row"><td>CELKOM S DPH:</td><td>{sum_vat_base * 1.23:.2f} €</td></tr>
@@ -231,16 +234,16 @@ final_document = f"""
     <div class="section-header">BRANDING</div>
     <div class="branding-row">
         <div><b>Technológia</b><br>{b_tech}</div>
-        <div style="grid-column: span 1"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
+        <div><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
         <div class="text-right"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
-    <div class="graphics-row">
-        <div class="graphic-col">
+    <div class="graphics-container">
+        <div class="graphic-column">
             <div class="section-header">LOGO KLIENTA</div>
             <div class="graphic-box">{html_logos}</div>
         </div>
-        <div class="graphic-col">
+        <div class="graphic-column">
             <div class="section-header">NÁHĽAD GRAFIKY</div>
             <div class="graphic-box">{html_previews}</div>
         </div>
@@ -253,10 +256,10 @@ final_document = f"""
 </div>
 """
 
-# VYKRESLENIE
-st.markdown(final_document, unsafe_allow_html=True)
+# Zobrazenie výsledku
+st.markdown(doc_html, unsafe_allow_html=True)
 
-# TLAČIDLO
+# Tlačidlo pre tlač
 st.write("")
 if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
