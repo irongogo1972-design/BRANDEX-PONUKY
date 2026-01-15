@@ -26,30 +26,31 @@ st.set_page_config(page_title="BRANDEX Creator", layout="wide")
 logo_base64 = get_base64_image("brandex_logo.PNG")
 
 st.markdown(f"""
-    <style>
-    /* ODSTRÁNENIE BIELYCH MEDZIER HORE A SYSTÉMOVÝCH PRVKOV */
+<style>
+    /* ZABEZPEČENIE VIDITEĽNOSTI SIDEBARU */
+    [data-testid="stSidebarNav"] {{
+        display: block !important;
+    }}
+    
+    /* Šípka na rozbalenie sidebaru - vynútenie farby a viditeľnosti */
+    [data-testid="collapsedControl"] {{
+        display: flex !important;
+        color: #ff4b4b !important;
+        background-color: white !important;
+        border-radius: 50%;
+        box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    }}
+
+    /* ODSTRÁNENIE BIELYCH MEDZIER HORE */
     [data-testid="stAppViewBlockContainer"] {{ 
         padding-top: 0rem !important; 
         padding-bottom: 0rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
     }}
-    [data-testid="stHeader"] {{ display: none !important; }}
-    [data-testid="stToolbar"] {{ display: none !important; }}
     
-    /* ODSTRÁNENIE ŠEDÝCH POZADÍ Z FORMULÁRA */
-    div[data-baseweb="input"], div[data-baseweb="select"], div[data-baseweb="base-input"], .stTextInput div, .stTextArea div, .stDateInput div {{
-        background-color: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-    }}
-    .stTextInput input, .stTextArea textarea, .stSelectbox div, .stDateInput input {{
-        background-color: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        color: black !important;
-        min-height: 20px !important;
-    }}
+    /* Ostatné designové nastavenia zostávajú rovnaké... */
+    .stTextInput input {{ border: none !important; background: transparent !important; }}
+    </style>
+    """, unsafe_allow_html=True) 
 
     /* VIZUÁL PAPIERA NA OBRAZOVKE */
     @media screen {{
