@@ -124,9 +124,15 @@ df_db = load_excel()
 
 # --- 4. SIDEBAR OVLÁDANIE ---
 with st.sidebar:
-    st.header("⚙️ Správa položiek")
-    if not df_db.empty:
-        st.subheader("➕ Pridať tovar")
+    st.header("⚙️ Ovládanie")
+    
+    # Pridáme kontrolu, aby sme vedeli, či Excel funguje
+    if df_db.empty:
+        st.error("❌ CHYBA: Súbor 'produkty.xlsx' nebol nájdený alebo je prázdny!")
+        st.info("Nahrajte súbor produkty.xlsx na GitHub do hlavného priečinka.")
+    else:
+        st.success("✅ Katalóg produktov je načítaný")
+        st.subheader("➕ Pridať položku")
         model = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
         sub_df = df_db[df_db['SKUPINOVY_NAZOV'] == model]
         farba = st.selectbox("Farba", sorted(sub_df['FARBA'].unique()))
@@ -143,18 +149,9 @@ with st.sidebar:
                 if img_f == 'nan' or not img_f.startswith('http'): img_f = ""
                 st.session_state['offer_items'].append({
                     "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
-                    "ks": qty, "p": float(row['PRICE']), "z": disc, 
-                    "img": img_f, "br": br_u
+                    "ks": qty, "p": float(row['PRICE']), "z": disc, "img": img_f, "br": br_u
                 })
             st.rerun()
-
-    if st.session_state['offer_items']:
-        st.divider()
-        st.subheader("🗑️ Zmazať položky")
-        for idx, item in enumerate(st.session_state['offer_items']):
-            if st.button(f"Zmazať {item['kod']} ({item['v']})", key=f"del_{idx}"):
-                st.session_state['offer_items'].pop(idx)
-                st.rerun()
 
 # --- 5. DOKUMENT A4 ---
 st.markdown('<div class="paper">', unsafe_allow_html=True)
