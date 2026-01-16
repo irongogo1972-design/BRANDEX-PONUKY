@@ -15,6 +15,9 @@ def get_base64_image(image_path):
 
 def file_to_base64(uploaded_file):
     if uploaded_file is not None:
+        # Kontrola typu súboru
+        if uploaded_file.type == "application/pdf":
+            return "PDF_FILE" # Príznak pre PDF
         return base64.b64encode(uploaded_file.getvalue()).decode()
     return ""
 
@@ -60,7 +63,6 @@ st.markdown(f"""
     .header {{ text-align: center; margin-bottom: 5px; }}
     .header img {{ width: 220px; }} 
     .main-title {{ font-size: 28px; font-weight: bold; text-align: center; text-transform: uppercase; margin: 5px 0 15px 0; }}
-
     .orange-line {{ border-top: 2px solid #FF8C00; margin: 10px 0; }}
 
     .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 11px; }}
@@ -69,7 +71,7 @@ st.markdown(f"""
 
     table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; table-layout: fixed; }}
     table.items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 5px; font-size: 9px; text-transform: uppercase; }}
-    table.items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 10px; vertical-align: middle; }}
+    table.items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 9px; vertical-align: middle; }}
     .img-cell img {{ max-width: 80px; max-height: 110px; object-fit: contain; }}
 
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
@@ -78,10 +80,10 @@ st.markdown(f"""
     .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
     .section-title {{ font-weight: bold; font-size: 12px; margin-top: 15px; text-transform: uppercase; }}
-    
     .graphics-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
     .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 100px; }}
     .graphic-col img {{ max-width: 100%; max-height: 140px; margin-top: 5px; }}
+    .pdf-placeholder {{ font-size: 10px; color: #555; margin-top: 20px; }}
 
     .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 40px; padding-top: 5px; line-height: 1.4; }}
 </style>
@@ -97,7 +99,7 @@ with st.sidebar:
         c_osoba = st.text_input("Kontakt")
         c_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
         c_dodanie = st.text_input("Doba dodania", "10-14 pracovných dní")
-        c_vypracoval = st.text_input("Vypracoval")
+        c_vypracoval = st.text_input("Ponuku vypracoval")
 
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
@@ -108,7 +110,6 @@ with st.sidebar:
             sub = df_db[df_db['SKUPINOVY_NAZOV'] == model]
             farba = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
             
-            # Automatické predvyplnenie linku zo stĺpca Q
             color_sub = sub[sub['FARBA'] == farba]
             suggested_img = ""
             if not color_sub.empty:
@@ -132,11 +133,12 @@ with st.sidebar:
                 st.rerun()
 
     with st.expander("🎨 Branding a Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
         b_desc = st.text_area("Popis")
         b_date = st.date_input("Dodanie vzorky", datetime.now())
-        upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg'], accept_multiple_files=True)
-        upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg'], accept_multiple_files=True)
+        # TU SOM PRIDAL 'pdf' DO POVOLENÝCH FORMÁTOV
+        upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
+        upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
 
     if st.session_state.offer_items:
         st.divider()
@@ -149,8 +151,15 @@ with st.sidebar:
                 st.rerun()
 
 # --- 4. ZOSTAVENIE HTML VÝSTUPU ---
-html_logos = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_logos]) if upl_logos else ""
-html_previews = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_previews]) if upl_previews else ""
+def render_graphic_files(files):
+    html = ""
+    for f in files:
+        if f.type == "application/pdf":
+            html += f'<div class="pdf-placeholder">📄 Súbor PDF nahraný: {f.name}</div>'
+        else:
+            b64 = base64.b64encode(f.getvalue()).decode()
+            html += f'<img src="data:image/png;base64,{b64}">'
+    return html
 
 table_rows = ""
 t_items = 0
@@ -176,7 +185,6 @@ if st.session_state.offer_items:
 
 sum_base = t_items + t_brand
 
-# ZLOŽENIE FINÁLNEHO DOKUMENTU
 final_html = f"""
 <div class="paper">
     <div class="header">
@@ -237,11 +245,11 @@ final_html = f"""
     <div class="graphics-row side-by-side-print">
         <div class="graphic-col">
             <div class="section-title">LOGO KLIENTA</div>
-            <div class="graphic-box">{html_logos}</div>
+            <div class="graphic-box">{render_graphic_files(upl_logos)}</div>
         </div>
         <div class="graphic-col">
             <div class="section-header section-title">NÁHĽAD GRAFIKY</div>
-            <div class="graphic-box">{html_previews}</div>
+            <div class="graphic-box">{render_graphic_files(upl_previews)}</div>
         </div>
     </div>
 
@@ -252,7 +260,6 @@ final_html = f"""
 </div>
 """
 
-# ZOBRAZENIE
 st.html(final_html)
 
 # TLAČIDLO TLAČE
