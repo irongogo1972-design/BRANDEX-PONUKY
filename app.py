@@ -25,21 +25,93 @@ def sort_sizes(size_list):
 # Inicializácia pamäte
 if 'offer_items' not in st.session_state: st.session_state['offer_items'] = []
 
-# --- 2. NASTAVENIA STRÁNKY ---
+# --- 2. NASTAVENIA STRÁNKY A GLOBÁLNE CSS ---
 st.set_page_config(page_title="Brandex Creator", layout="wide", initial_sidebar_state="expanded")
 
 logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
-# --- 3. SIDEBAR (VŠETKY VSTUPY SÚ TU) ---
+# Globálne štýly pre aplikáciu aj TLAČ
+st.markdown(f"""
+<style>
+    /* SKRYTIE SIDEBARU A BALASTU PRI TLAČI */
+    @media print {{
+        section[data-testid="stSidebar"], .stSidebar, .no-print, button, header, footer, [data-testid="stHeader"] {{
+            display: none !important;
+            width: 0 !important;
+        }}
+        [data-testid="stAppViewBlockContainer"] {{
+            padding: 0 !important;
+            margin: 0 !important;
+        }}
+        .paper {{
+            margin: 0 !important;
+            box-shadow: none !important;
+            width: 100% !important;
+            padding: 0 !important;
+        }}
+        .footer-box {{
+            position: fixed; bottom: 0; left: 0; right: 0;
+            text-align: center; border-top: 1px solid #FF8C00;
+            padding: 5px 0; background: white; font-size: 8px;
+        }}
+        @page {{ size: A4; margin: 1cm; }}
+    }}
+
+    /* VIZUÁL PAPIERA NA OBRAZOVKE */
+    .paper {{
+        background: white; width: 210mm; min-height: 290mm;
+        padding: 12mm 15mm; margin: 0 auto;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        color: black; font-family: "Arial", sans-serif;
+    }}
+
+    /* HLAVIČKA */
+    .header {{ text-align: center; margin-bottom: 5px; }}
+    .header img {{ width: 220px; }}
+    .main-title {{ font-size: 28px; font-weight: bold; text-align: center; text-transform: uppercase; margin: -5px 0 15px 0; }}
+
+    /* INFO SEKCE */
+    .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 11px; }}
+    .info-left {{ width: 55%; text-align: left; line-height: 1.1; }}
+    .info-right {{ width: 40%; text-align: right; line-height: 1.1; }}
+
+    /* TABUĽKA - ZMENŠENÉ PÍSMO */
+    table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; }}
+    table.items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 4px; font-size: 9px; text-transform: uppercase; }}
+    table.items-table td {{ border: 1px solid #ccc; padding: 3px; text-align: center; font-size: 10px; vertical-align: middle; }}
+    .img-cell img {{ max-width: 70px; max-height: 90px; object-fit: contain; }}
+
+    /* SUMÁR */
+    .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 5px; }}
+    .summary-table {{ width: 260px; border-collapse: collapse; border: none !important; }}
+    .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 2px 8px; text-align: right; font-size: 11px; }}
+    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 12px !important; border-bottom: 2px solid #FF8C00 !important; }}
+
+    /* BRANDING A SEKČNÉ ČIARY */
+    .section-header {{ 
+        font-weight: bold; font-size: 12px; margin-top: 15px; 
+        border-bottom: 2px solid #FF8C00; padding-bottom: 2px; text-transform: uppercase; 
+    }}
+    .branding-grid {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 10px; }}
+    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
+    .graphic-column {{ width: 48%; display: flex; flex-direction: column; gap: 5px; }}
+    .graphic-box {{ border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 100px; }}
+    .graphic-box img {{ max-width: 100%; max-height: 120px; display: block; margin: 5px auto; }}
+
+    .footer-box {{ font-size: 9px; text-align: center; border-top: 1px solid #FF8C00; margin-top: 30px; padding-top: 5px; line-height: 1.3; }}
+</style>
+""", unsafe_allow_html=True)
+
+# --- 3. SIDEBAR OVLÁDANIE ---
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    with st.expander("👤 Odberateľ a Spracovateľ", expanded=False):
-        c_firma = st.text_input("Firma", "Názov firmy")
-        c_adresa = st.text_area("Adresa", "Ulica, Mesto")
-        c_osoba = st.text_input("Kontakt", "Meno kontaktnej osoby")
+    with st.expander("👤 Odberateľ", expanded=False):
+        c_firma = st.text_input("Firma", "")
+        c_adresa = st.text_area("Adresa", "")
+        c_osoba = st.text_input("Kontakt")
         c_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
-        c_vypracoval = st.text_input("Ponuku vypracoval", "Vaše meno a email")
+        c_vypracoval = st.text_input("Ponuku vypracoval")
 
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
@@ -53,7 +125,7 @@ with st.sidebar:
             qty = st.number_input("Počet ks", 1, 5000, 1)
             disc = st.number_input("Zľava %", 0, 100, 0)
             br_u = st.number_input("Branding/ks €", 0.0, 50.0, 0.0, step=0.1)
-            link_img = st.text_input("Vlastný link na obrázok (voliteľné)")
+            link_img = st.text_input("Vlastný link na obrázok")
             
             if st.button("PRIDAŤ DO TABUĽKY"):
                 for s in velkosti:
@@ -66,9 +138,9 @@ with st.sidebar:
                         })
                 st.rerun()
 
-    with st.expander("🎨 Branding a Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
-        b_desc = st.text_area("Popis brandingu")
+    with st.expander("🎨 Grafika", expanded=False):
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
+        b_desc = st.text_area("Popis")
         b_date = st.date_input("Dodanie vzorky", datetime.now())
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg'], accept_multiple_files=True)
         upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg'], accept_multiple_files=True)
@@ -83,15 +155,14 @@ with st.sidebar:
                 st.session_state.offer_items.pop(idx)
                 st.rerun()
 
-# --- 4. ZOSTAVENIE HTML DOKUMENTU ---
-# Logá a náhľady
-html_logos = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}" style="max-width:100%; max-height:120px; display:block; margin:5px auto;">' for f in upl_logos]) if upl_logos else ""
-html_previews = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}" style="max-width:100%; max-height:120px; display:block; margin:5px auto;">' for f in upl_previews]) if upl_previews else ""
+# --- 4. ZOSTAVENIE HTML ---
+html_logos = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_logos]) if upl_logos else ""
+html_previews = "".join([f'<img src="data:image/png;base64,{file_to_base64(f)}">' for f in upl_previews]) if upl_previews else ""
 
-# Tabuľka Položiek
 table_rows = ""
 t_items = 0
 t_brand = 0
+
 if st.session_state.offer_items:
     df_items = pd.DataFrame(st.session_state.offer_items)
     groups = df_items.groupby(['n', 'f'], sort=False).size().tolist()
@@ -104,53 +175,43 @@ if st.session_state.offer_items:
             t_items += (it['ks'] * pz)
             t_brand += (it['ks'] * it['br'])
             
-            table_rows += "<tr>"
+            row = "<tr>"
             if i == 0:
-                img_url = it['img'] if it['img'] != 'nan' else ""
-                table_rows += f'<td rowspan="{g_size}" style="width:85px; text-align:center; border:1px solid #ccc;"><img src="{img_url}" style="max-width:75px; max-height:100px;"></td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["kod"]}</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["n"]}</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["f"]}</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["v"]}</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["ks"]}</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["p"]:.2f} €</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["z"]}%</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{it["br"]:.2f} €</td>'
-            table_rows += f'<td style="border:1px solid #ccc; padding:4px; text-align:center;">{r_sum:.2f} €</td></tr>'
+                img = it['img'] if it['img'] != 'nan' else ""
+                row += f'<td rowspan="{g_size}" class="img-cell"><img src="{img}"></td>'
+            row += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{it['br']:.2f} €</td><td>{r_sum:.2f} €</td></tr>"
+            table_rows += row
             idx += 1
 
-sum_vat_base = t_items + t_brand
+sum_base = t_items + t_brand
 
-# KONŠTRUKCIA CELÉHO HTML
 final_html = f"""
-<div style="background: white; width: 210mm; min-height: 290mm; padding: 15mm; margin: 0 auto; color: black; font-family: Arial, sans-serif; box-shadow: 0 0 10px rgba(0,0,0,0.1);">
-    
-    <!-- HLAVIČKA -->
-    <div style="text-align: center;">
-        <img src="data:image/png;base64,{logo_main_b64 if logo_main_b64 else ''}" style="width:220px;">
-        <h1 style="font-size: 32px; font-weight: bold; text-transform: uppercase; margin: -5px 0 20px 0;">Ponuka</h1>
+<div class="paper">
+    <div class="header">
+        <img src="data:image/png;base64,{logo_main_b64 if logo_main_b64 else ''}">
     </div>
+    <div class="main-title">PONUKA</div>
 
-    <!-- ODBERATEĽ A PLATNOSŤ -->
-    <div style="display: flex; justify-content: space-between; font-size: 12px; margin-top: 20px;">
-        <div style="width: 55%;">
+    <div class="info-grid">
+        <div class="info-left">
             <b>ODBERATEĽ :</b><br>
-            {c_firma}<br>{c_adresa}<br>{c_osoba}
+            {c_firma if c_firma else "........................"}<br>
+            {c_adresa if c_adresa else ""}<br>
+            {c_osoba if c_osoba else ""}
         </div>
-        <div style="width: 40%; text-align: right;">
+        <div class="info-right">
             <b>PLATNOSŤ PONUKY DO :</b><br>
             {c_platnost.strftime('%d. %m. %Y')}<br><br>
             <b>VYPRACOVAL :</b><br>
-            {c_vypracoval}
+            {c_vypracoval if c_vypracoval else "........................"}
         </div>
     </div>
 
-    <!-- POLOŽKY -->
-    <div style="font-weight: bold; font-size: 13px; margin-top: 25px; border-bottom: 2px solid #FF8C00; padding-bottom: 3px; text-transform: uppercase;">Položky</div>
-    <table style="width: 100%; border-collapse: collapse; margin-top: 10px; color: black;">
-        <thead style="background: #f2f2f2;">
+    <div class="section-header">POLOŽKY</div>
+    <table class="items-table">
+        <thead>
             <tr>
-                <th>Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th>
+                <th style="width:85px">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th>
                 <th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th>
             </tr>
         </thead>
@@ -159,49 +220,49 @@ final_html = f"""
         </tbody>
     </table>
 
-    <!-- SUMÁR -->
-    <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
-        <table style="width: 280px; border-collapse: collapse; font-size: 12px;">
-            <tr><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">Suma položiek bez DPH:</td><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">{t_items:.2f} €</td></tr>
-            <tr><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">Branding celkom bez DPH:</td><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">{t_brand:.2f} €</td></tr>
-            <tr style="font-weight: bold;"><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">Základ DPH:</td><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">{sum_vat_base:.2f} €</td></tr>
-            <tr><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">DPH (23%):</td><td style="text-align: right; padding: 3px 8px; border-bottom: 1px solid #eee;">{sum_vat_base * 0.23:.2f} €</td></tr>
-            <tr style="font-weight: bold; background: #fdf2e9; border-bottom: 2px solid #FF8C00;"><td style="text-align: right; padding: 5px 8px;">CELKOM S DPH:</td><td style="text-align: right; padding: 5px 8px;">{sum_vat_base * 1.23:.2f} €</td></tr>
+    <div class="summary-wrapper">
+        <table class="summary-table">
+            <tr><td>Suma položiek bez DPH:</td><td>{t_items:.2f} €</td></tr>
+            <tr><td>Branding celkom bez DPH:</td><td>{t_brand:.2f} €</td></tr>
+            <tr style="font-weight:bold;"><td>Základ DPH:</td><td>{sum_base:.2f} €</td></tr>
+            <tr><td>DPH (23%):</td><td>{sum_base * 0.23:.2f} €</td></tr>
+            <tr class="total-row"><td>CELKOM S DPH:</td><td>{sum_base * 1.23:.2f} €</td></tr>
         </table>
     </div>
 
-    <!-- BRANDING -->
-    <div style="font-weight: bold; font-size: 13px; margin-top: 25px; border-bottom: 2px solid #FF8C00; padding-bottom: 3px; text-transform: uppercase;">Branding</div>
-    <div style="display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; font-size: 12px;">
-        <div style="flex: 1;"><b>Technológia</b><br>{b_tech}</div>
-        <div style="flex: 2;"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
-        <div style="flex: 1; text-align: right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
+    <div class="section-header">BRANDING</div>
+    <div class="branding-row">
+        <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
+        <div style="flex:2"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
+        <div class="text-right" style="flex:1"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
-    <!-- GRAFIKA -->
-    <div style="display: flex; justify-content: space-between; gap: 20px; margin-top: 20px;">
-        <div style="width: 48%;">
-            <div style="font-weight: bold; font-size: 12px; border-bottom: 1px solid #ccc; margin-bottom: 5px;">LOGO KLIENTA</div>
-            <div style="border: 1px dashed #ccc; padding: 10px; min-height: 120px; text-align: center;">{html_logos}</div>
+    <div class="graphics-container">
+        <div class="graphic-column">
+            <div class="section-header">LOGO KLIENTA</div>
+            <div class="graphic-box">{html_logos}</div>
         </div>
-        <div style="width: 48%;">
-            <div style="font-weight: bold; font-size: 12px; border-bottom: 1px solid #ccc; margin-bottom: 5px;">NÁHĽAD GRAFIKY</div>
-            <div style="border: 1px dashed #ccc; padding: 10px; min-height: 120px; text-align: center;">{html_previews}</div>
+        <div class="graphic-column">
+            <div class="section-header">NÁHĽAD GRAFIKY</div>
+            <div class="graphic-box">{html_previews}</div>
         </div>
     </div>
 
-    <!-- PÄTA -->
-    <div style="margin-top: auto; padding-top: 10px; border-top: 2px solid #FF8C00; text-align: center; font-size: 10px; line-height: 1.4; color: #333;">
+    <div class="footer-box">
         BRANDEX, s.r.o., Narcisova 1, 821 01 Bratislava | Prevádzka: Stará vajnorská 37, 831 04 Bratislava<br>
         tel.: +421 2 55 42 12 47 | email: brandex@brandex.sk | www.brandex.sk
     </div>
 </div>
 """
 
-# ZOBRAZENIE (Tento riadok je kľúčový pre WYSIWYG)
+# ZOBRAZENIE
 st.html(final_html)
 
-# TLAČIDLO PRE TLAČ
+# TLAČIDLO TLAČE (Vsidebare aj na ploche, skryté pri tlači)
+st.sidebar.divider()
+if st.sidebar.button("🖨️ TLAČIŤ (ALT+P)", use_container_width=True):
+    st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
+
 st.write("")
-if st.button("🖨️ TLAČIŤ PONUKU", use_container_width=True):
+if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
