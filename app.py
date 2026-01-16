@@ -30,7 +30,6 @@ st.set_page_config(page_title="Brandex Creator", layout="wide", initial_sidebar_
 
 logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
-# Globálne štýly pre aplikáciu aj TLAČ
 st.markdown(f"""
 <style>
     /* SKRYTIE SIDEBARU A BALASTU PRI TLAČI */
@@ -39,16 +38,8 @@ st.markdown(f"""
             display: none !important;
             width: 0 !important;
         }}
-        [data-testid="stAppViewBlockContainer"] {{
-            padding: 0 !important;
-            margin: 0 !important;
-        }}
-        .paper {{
-            margin: 0 !important;
-            box-shadow: none !important;
-            width: 100% !important;
-            padding: 0 !important;
-        }}
+        [data-testid="stAppViewBlockContainer"] {{ padding: 0 !important; margin: 0 !important; }}
+        .paper {{ margin: 0 !important; box-shadow: none !important; width: 100% !important; padding: 0 !important; }}
         .footer-box {{
             position: fixed; bottom: 0; left: 0; right: 0;
             text-align: center; border-top: 1px solid #FF8C00;
@@ -58,6 +49,7 @@ st.markdown(f"""
     }}
 
     /* VIZUÁL PAPIERA NA OBRAZOVKE */
+    [data-testid="stAppViewBlockContainer"] {{ padding: 0 !important; }}
     .paper {{
         background: white; width: 210mm; min-height: 290mm;
         padding: 12mm 15mm; margin: 0 auto;
@@ -72,10 +64,11 @@ st.markdown(f"""
 
     /* INFO SEKCE */
     .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 11px; }}
-    .info-left {{ width: 55%; text-align: left; line-height: 1.1; }}
-    .info-right {{ width: 40%; text-align: right; line-height: 1.1; }}
+    .info-left {{ width: 55%; text-align: left; line-height: 1.2; }}
+    .info-right {{ width: 40%; text-align: right; line-height: 1.2; }}
+    .delivery-note {{ font-size: 9px; font-style: italic; color: #555; }}
 
-    /* TABUĽKA - ZMENŠENÉ PÍSMO */
+    /* TABUĽKA */
     table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; }}
     table.items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 4px; font-size: 9px; text-transform: uppercase; }}
     table.items-table td {{ border: 1px solid #ccc; padding: 3px; text-align: center; font-size: 10px; vertical-align: middle; }}
@@ -85,14 +78,19 @@ st.markdown(f"""
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 5px; }}
     .summary-table {{ width: 260px; border-collapse: collapse; border: none !important; }}
     .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 2px 8px; text-align: right; font-size: 11px; }}
-    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 12px !important; border-bottom: 2px solid #FF8C00 !important; }}
+    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
-    /* BRANDING A SEKČNÉ ČIARY */
+    /* SEKČNÉ ČIARY ORANŽOVÉ */
     .section-header {{ 
         font-weight: bold; font-size: 12px; margin-top: 15px; 
         border-bottom: 2px solid #FF8C00; padding-bottom: 2px; text-transform: uppercase; 
     }}
-    .branding-grid {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 10px; }}
+
+    /* BRANDING LAYOUT VEDĽA SEBA */
+    .branding-container {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 8px; font-size: 11px; }}
+    .branding-item {{ flex: 1; }}
+    .branding-desc {{ flex: 2; }}
+
     .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
     .graphic-column {{ width: 48%; display: flex; flex-direction: column; gap: 5px; }}
     .graphic-box {{ border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 100px; }}
@@ -106,11 +104,12 @@ st.markdown(f"""
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    with st.expander("👤 Odberateľ", expanded=False):
+    with st.expander("👤 Odberateľ a Termíny", expanded=False):
         c_firma = st.text_input("Firma", "")
         c_adresa = st.text_area("Adresa", "")
         c_osoba = st.text_input("Kontakt")
         c_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
+        c_dodanie = st.text_input("Doba dodania", "10-14 pracovných dní")
         c_vypracoval = st.text_input("Ponuku vypracoval")
 
     if os.path.exists("produkty.xlsx"):
@@ -138,9 +137,9 @@ with st.sidebar:
                         })
                 st.rerun()
 
-    with st.expander("🎨 Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
-        b_desc = st.text_area("Popis")
+    with st.expander("🎨 Branding a Grafika", expanded=False):
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
+        b_desc = st.text_area("Popis brandingu")
         b_date = st.date_input("Dodanie vzorky", datetime.now())
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg'], accept_multiple_files=True)
         upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg'], accept_multiple_files=True)
@@ -202,6 +201,9 @@ final_html = f"""
         <div class="info-right">
             <b>PLATNOSŤ PONUKY DO :</b><br>
             {c_platnost.strftime('%d. %m. %Y')}<br><br>
+            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>
+            {c_dodanie if c_dodanie else "........................"}<br>
+            <span class="delivery-note">od schválenia vzoriek</span><br><br>
             <b>VYPRACOVAL :</b><br>
             {c_vypracoval if c_vypracoval else "........................"}
         </div>
@@ -231,10 +233,10 @@ final_html = f"""
     </div>
 
     <div class="section-header">BRANDING</div>
-    <div class="branding-row">
-        <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
-        <div style="flex:2"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
-        <div class="text-right" style="flex:1"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
+    <div class="branding-container">
+        <div class="branding-item"><b>Technológia</b><br>{b_tech}</div>
+        <div class="branding-desc"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
+        <div class="branding-item" style="text-align: right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
     <div class="graphics-container">
@@ -258,11 +260,7 @@ final_html = f"""
 # ZOBRAZENIE
 st.html(final_html)
 
-# TLAČIDLO TLAČE (Vsidebare aj na ploche, skryté pri tlači)
-st.sidebar.divider()
-if st.sidebar.button("🖨️ TLAČIŤ (ALT+P)", use_container_width=True):
-    st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
-
+# TLAČIDLO TLAČE
 st.write("")
 if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
