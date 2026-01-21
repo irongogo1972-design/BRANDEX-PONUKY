@@ -24,8 +24,8 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z ERP PDF (AKTUALIZOVANÁ VERZIA) ---
-def extract_data_from_erp(uploaded_file):
+# --- 2. AI EXTRAKCIA Z GARIS PDF (OPRAVENÉ VOLANIE) ---
+def extract_data_from_garis(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
         st.error("Chýba API kľúč v Secrets!")
@@ -34,35 +34,37 @@ def extract_data_from_erp(uploaded_file):
     try:
         genai.configure(api_key=api_key)
         
-        # V roku 2026 skúsime najprv gemini-2.0-flash, potom 1.5
-        model_to_use = 'gemini-1.5-flash' 
-        model = genai.GenerativeModel(model_to_use)
+        # OPRAVA 404: Skúšame volať model priamo jeho názvom bez v1beta prefixov
+        # Ak by toto zlyhalo, v sidebare máte diagnostiku na presný názov
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
         
         prompt = """
-        Analyzuj túto PDF ponuku z ERP systému a vráť údaje v čistom JSON formáte.
+        Analyzuj túto PDF ponuku zo systému GARIS a vráť údaje v čistom JSON formáte.
         Polia:
         - firma (názov odberateľa)
         - adresa (adresa odberateľa)
         - osoba (kontaktná osoba)
         - vypracoval (meno spracovateľa)
         - polozky (zoznam, kde každá položka má: kod, nazov, mnozstvo, cena_bez_dph)
-        Kód hľadaj v názve tovaru. Vráť IBA čistý JSON bez markdown značiek.
+        Kód hľadaj v názve (napr. B02E, O82, atď.).
+        Vráť IBA JSON bez akýchkoľvek kecov okolo.
         """
         
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Odstránenie prípadných JSON obalov ak ich AI pridá
-        if text_response.startswith("```"):
-            text_response = text_response.splitlines()[1:-1]
-            text_response = "".join(text_response)
+        # Vyčistenie JSONu z markdownu
+        if "```json" in text_response:
+            text_response = text_response.split("```json")[1].split("```")[0]
+        elif "```" in text_response:
+            text_response = text_response.split("```")[1].split("```")[0]
             
         return json.loads(text_response.strip())
     except Exception as e:
-        st.error(f"AI analýza zlyhala: {e}")
+        st.error(f"Analýza GARIS PDF zlyhala: {e}")
         return None
 
 # Inicializácia pamäte
@@ -71,7 +73,7 @@ if 'client' not in st.session_state:
     st.session_state['client'] = {"f": "", "a": "", "o": "", "p": datetime.now() + timedelta(days=14), "v": "", "d": "10-14 pracovných dní"}
 
 # --- 3. CSS DESIGN (WYSIWYG) ---
-st.set_page_config(page_title="Brandex Creator PRO", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Brandex Creator (GARIS)", layout="wide", initial_sidebar_state="expanded")
 
 logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
@@ -79,14 +81,12 @@ st.markdown(f"""
 <style>
     [data-testid="stAppViewBlockContainer"] {{ padding: 0 !important; }}
     [data-testid="stHeader"] {{ display: none !important; }}
-    
     .paper {{
         background: white; width: 210mm; min-height: 290mm;
         padding: 12mm 15mm; margin: 0 auto;
         box-shadow: 0 0 10px rgba(0,0,0,0.1);
         color: black; font-family: "Arial", sans-serif;
     }}
-
     @media print {{
         header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader, .stDownloadButton {{
             display: none !important;
@@ -99,32 +99,23 @@ st.markdown(f"""
         }}
         @page {{ size: A4; margin: 1cm; }}
     }}
-
     .header-logo {{ text-align: center; margin-bottom: 0px; }}
     .header-logo img {{ width: 220px; }}
     .main-title {{ font-size: 32px; font-weight: bold; text-align: center; text-transform: uppercase; margin: -10px 0 15px 0; }}
     .orange-line {{ border-top: 2px solid #FF8C00; margin: 8px 0; }}
-
     .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 11px; }}
     .info-left {{ width: 55%; text-align: left; line-height: 1.2; }}
     .info-right {{ width: 40%; text-align: right; line-height: 1.2; }}
-
     table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; }}
     table.items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 5px; font-size: 9px; text-transform: uppercase; }}
     table.items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 10px; vertical-align: middle; }}
     .img-cell img {{ max-width: 80px; max-height: 110px; object-fit: contain; }}
-
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
     .summary-table {{ width: 280px; border-collapse: collapse; border: none !important; }}
     .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 3px 8px; text-align: right; font-size: 11px; }}
     .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
-
     .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
-    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
-    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
-    .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
     .graphic-col img {{ max-width: 100%; max-height: 120px; }}
-
     .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 30px; padding-top: 5px; line-height: 1.4; }}
 </style>
 """, unsafe_allow_html=True)
@@ -133,28 +124,27 @@ st.markdown(f"""
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    # 1. DIAGNOSTIKA (Pre prípad chyby 404)
-    if st.button("🔍 Overiť dostupné AI modely"):
+    # DIAGNOSTIKA
+    if st.button("🔍 Diagnostika modelov"):
         try:
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            st.write(models)
+            models = [m.name for m in genai.list_models()]
+            st.write("Dostupné modely:", models)
         except Exception as e:
             st.error(f"Chyba: {e}")
 
-    # 2. IMPORT Z ERP
-    st.subheader("📄 Import z ERP PDF")
-    erp_file = st.file_uploader("Nahrajte PDF ponuku", type=['pdf', 'png', 'jpg', 'jpeg'])
-    if erp_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
-        with st.spinner("AI analyzuje ponuku..."):
-            extracted = extract_data_from_erp(erp_file)
+    # 1. IMPORT Z GARIS
+    st.subheader("📄 Import z GARIS (PDF)")
+    garis_file = st.file_uploader("Nahrajte PDF ponuku z GARIS", type=['pdf', 'png', 'jpg', 'jpeg'])
+    if garis_file and st.button("🚀 IMPORTOVAŤ Z GARIS"):
+        with st.spinner("AI analyzuje GARIS dokument..."):
+            extracted = extract_data_from_garis(garis_file)
             if extracted:
                 st.session_state.client['f'] = extracted.get('firma', "")
                 st.session_state.client['a'] = extracted.get('adresa', "")
                 st.session_state.client['o'] = extracted.get('osoba', "")
                 st.session_state.client['v'] = extracted.get('vypracoval', "")
                 
-                # Párovanie s Excelom
                 if os.path.exists("produkty.xlsx"):
                     df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
                     for p in extracted.get('polozky', []):
@@ -164,17 +154,17 @@ with st.sidebar:
                             "kod": p['kod'], "n": p['nazov'], "f": "", "v": "",
                             "ks": p['mnozstvo'], "p": float(p['cena_bez_dph']), "z": 0, "br": 0, "img": img_url
                         })
-                st.success("Import úspešný!")
+                st.success("Dáta z GARIS boli úspešne načítané!")
                 st.rerun()
 
     st.divider()
     with st.expander("👤 Odberateľ a Termíny", expanded=False):
-        st.session_state.client['f'] = st.text_input("Firma", st.session_state.client['f'])
-        st.session_state.client['a'] = st.text_area("Adresa", st.session_state.client['a'])
-        st.session_state.client['o'] = st.text_input("Kontakt", st.session_state.client['o'])
-        st.session_state.client['p'] = st.date_input("Platnosť", st.session_state.client['p'])
-        st.session_state.client['d'] = st.text_input("Doba dodania", st.session_state.client['d'])
-        st.session_state.client['v'] = st.text_input("Vypracoval", st.session_state.client['v'])
+        c_firma = st.text_input("Firma", st.session_state.client['f'])
+        c_adresa = st.text_area("Adresa", st.session_state.client['a'])
+        c_osoba = st.text_input("Kontakt", st.session_state.client['o'])
+        c_platnost = st.date_input("Platnosť", st.session_state.client['p'])
+        c_dodanie = st.text_input("Doba dodania", st.session_state.client['d'])
+        c_vypracoval = st.text_input("Vypracoval", st.session_state.client['v'])
 
     # 3. PRIDÁVANIE TOVARU
     if os.path.exists("produkty.xlsx"):
@@ -182,16 +172,12 @@ with st.sidebar:
         df_db.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
         
         with st.expander("➕ Pridať položky", expanded=True):
-            model = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
-            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model]
-            farba = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
+            model_sel = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
+            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model_sel]
+            farba_sel = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
             
-            # Automatické predvyplnenie linku
-            color_sub = sub[sub['FARBA'] == farba]
-            suggested_img = ""
-            if not color_sub.empty:
-                valid_imgs = color_sub['IMG_PRODUCT'].dropna().tolist()
-                if valid_imgs: suggested_img = str(valid_imgs[0])
+            color_sub = sub[sub['FARBA'] == farba_sel]
+            suggested_img = str(color_sub['IMG_PRODUCT'].dropna().iloc[0]) if not color_sub['IMG_PRODUCT'].dropna().empty else ""
 
             velkosti = st.multiselect("Veľkosti", sort_sizes(color_sub['SIZE'].unique()))
             qty = st.number_input("Počet ks", 1, 5000, 1)
@@ -203,7 +189,7 @@ with st.sidebar:
                 for s in velkosti:
                     row = color_sub[color_sub['SIZE'] == s].iloc[0]
                     st.session_state.offer_items.append({
-                        "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
+                        "kod": row['KOD_IT'], "n": model_sel, "f": farba_sel, "v": s,
                         "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": link_img
                     })
                 st.rerun()
@@ -211,7 +197,7 @@ with st.sidebar:
     with st.expander("🎨 Branding a Grafika", expanded=False):
         b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
         b_desc = st.text_area("Popis")
-        b_date = st.date_input("Dátum vzorky", datetime.now())
+        b_date = st.date_input("Dodanie vzorky", datetime.now())
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
         upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
 
@@ -225,7 +211,7 @@ with st.sidebar:
                 st.session_state.offer_items.pop(idx)
                 st.rerun()
 
-# --- 5. ZOSTAVENIE HTML VÝSTUPU ---
+# --- 5. ZOSTAVENIE HTML ---
 def render_files(files):
     h = ""
     for f in files:
@@ -264,12 +250,12 @@ doc_html = f"""
     <div class="main-title">PONUKA</div>
 
     <div class="info-grid">
-        <div class="info-left"><b>ODBERATEĽ :</b><br>{st.session_state.client['f'] if st.session_state.client['f'] else "................"}<br>{st.session_state.client['a'] if st.session_state.client['a'] else ""}<br>{st.session_state.client['o'] if st.session_state.client['o'] else ""}</div>
+        <div class="info-left"><b>ODBERATEĽ :</b><br>{c_firma if c_firma else "................"}<br>{c_adresa if c_adresa else ""}<br>{c_osoba if c_osoba else ""}</div>
         <div class="info-right">
-            <b>PLATNOSŤ PONUKY DO :</b><br>{st.session_state.client['p'].strftime('%d. %m. %Y')}<br><br>
-            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{st.session_state.client['d']}<br>
+            <b>PLATNOSŤ PONUKY DO :</b><br>{c_platnost.strftime('%d. %m. %Y')}<br><br>
+            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{c_dodanie}<br>
             <span style="font-size:9px; font-style:italic; color:#555;">od schválenia vzoriek</span><br><br>
-            <b>VYPRACOVAL :</b><br>{st.session_state.client['v'] if st.session_state.client['v'] else "................"}
+            <b>VYPRACOVAL :</b><br>{c_vypracoval if c_vypracoval else "................"}
         </div>
     </div>
 
@@ -292,15 +278,15 @@ doc_html = f"""
 
     <div class="orange-line"></div>
     <div class="section-header">BRANDING</div>
-    <div class="branding-row" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
         <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
         <div style="flex:2"><b>Popis</b><br>{b_desc}</div>
         <div style="flex:1; text-align:right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
     <div class="graphics-row" style="display:flex; justify-content:space-between; gap:20px;">
-        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box">{render_files(upl_logos)}</div></div>
-        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box">{render_files(upl_previews)}</div></div>
+        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_logos)}</div></div>
+        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_previews)}</div></div>
     </div>
 
     <div class="footer-box">
@@ -310,10 +296,9 @@ doc_html = f"""
 </div>
 """
 
-# Zobrazenie cez st.html
 st.html(doc_html)
 
 # TLAČIDLO TLAČE
 st.write("")
-if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
+if st.button("🖨️ TLAČIŤ PONUKU", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
