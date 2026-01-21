@@ -1,4 +1,5 @@
-﻿# -*- coding: utf-8 -*-
+﻿
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import os
@@ -24,7 +25,7 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z GARIS PDF (PREPNUTÉ NA STABILNÝ MODEL 1.5) ---
+# --- 2. AI EXTRAKCIA Z GARIS PDF (NASTAVENÉ NA MODEL 2.0 FLASH) ---
 def extract_data_from_garis(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -33,8 +34,9 @@ def extract_data_from_garis(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # Používame gemini-1.5-flash, ktorý má stabilnejšie kvóty pre Free Tier
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # POUŽÍVAME MODEL 2.0 FLASH (č. 4 vo vašom zozname)
+        # Tento model je najmodernejší a vo vašom projekte dostupný
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
@@ -54,14 +56,14 @@ def extract_data_from_garis(uploaded_file):
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Očistenie od markdown obalov pre istotu
+        # Očistenie od prípadných obalov
         if text_response.startswith("```"):
             text_response = "\n".join(text_response.splitlines()[1:-1])
             
         return json.loads(text_response.strip())
     except Exception as e:
         if "429" in str(e):
-            st.error("⚠️ Google dočasne obmedzil požiadavky (Limit 429). Skúste to o 60 sekúnd.")
+            st.error("⚠️ Model Gemini 2.0 má pre váš kľúč nastavený limit 0. Skontrolujte nastavenia Free Tier v Google AI Studio alebo skúste vytvoriť úplne nový API kľúč v novom projekte.")
         else:
             st.error(f"AI Import zlyhal: {e}")
         return None
@@ -89,7 +91,7 @@ st.markdown(f"""
     }}
 
     @media print {{
-        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader, .stDownloadButton {{
+        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader {{
             display: none !important;
         }}
         .paper {{ margin: 0 !important; box-shadow: none !important; width: 100% !important; padding: 0 !important; }}
@@ -123,8 +125,7 @@ st.markdown(f"""
 
     .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
     
-    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
-    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
+    .graphics-container {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
     .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
     .graphic-col img {{ max-width: 100%; max-height: 120px; }}
 
@@ -148,7 +149,6 @@ with st.sidebar:
                 st.session_state.client['o'] = extracted.get('osoba', "")
                 st.session_state.client['v'] = extracted.get('vypracoval', "")
                 
-                # Párovanie s Excelom
                 if os.path.exists("produkty.xlsx"):
                     df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
                     for p in extracted.get('polozky', []):
@@ -179,6 +179,7 @@ with st.sidebar:
             model_sel = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
             sub = df_db[df_db['SKUPINOVY_NAZOV'] == model_sel]
             farba_sel = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
+            
             color_sub = sub[sub['FARBA'] == farba_sel]
             suggested_img = str(color_sub['IMG_PRODUCT'].dropna().iloc[0]) if not color_sub['IMG_PRODUCT'].dropna().empty else ""
 
@@ -282,7 +283,7 @@ doc_html = f"""
 
     <div class="orange-line"></div>
     <div class="section-header">BRANDING</div>
-    <div class="branding-row" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
+    <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
         <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
         <div style="flex:2"><b>Popis</b><br>{b_desc}</div>
         <div style="flex:1; text-align:right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
