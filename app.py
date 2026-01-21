@@ -24,7 +24,7 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z GARIS PDF (AKTUALIZOVANÁ NA MODEL 2.0) ---
+# --- 2. AI EXTRAKCIA Z GARIS PDF (PREPNUTÉ NA STABILNÝ MODEL 1.5) ---
 def extract_data_from_garis(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -33,8 +33,8 @@ def extract_data_from_garis(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # POUŽÍVAME MODEL 2.0 FLASH - podľa vašej diagnostiky je plne funkčný
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        # Používame gemini-1.5-flash, ktorý má stabilnejšie kvóty pre Free Tier
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
@@ -48,19 +48,22 @@ def extract_data_from_garis(uploaded_file):
         - vypracoval (meno spracovateľa)
         - polozky (zoznam, kde každá má: kod, nazov, mnozstvo, cena_bez_dph)
         Kód identifikuj napr. ako 'B02E' alebo 'O82'.
-        Vráť IBA JSON bez akýchkoľvek markdown značiek.
+        Vráť IBA JSON bez akýchkoľvek markdown značiek (bez ```json).
         """
         
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Očistenie od markdown obalov (ak by ich AI predsa len pridala)
+        # Očistenie od markdown obalov pre istotu
         if text_response.startswith("```"):
             text_response = "\n".join(text_response.splitlines()[1:-1])
             
         return json.loads(text_response.strip())
     except Exception as e:
-        st.error(f"AI Import zlyhal: {e}")
+        if "429" in str(e):
+            st.error("⚠️ Google dočasne obmedzil požiadavky (Limit 429). Skúste to o 60 sekúnd.")
+        else:
+            st.error(f"AI Import zlyhal: {e}")
         return None
 
 # Inicializácia pamäte
@@ -86,7 +89,7 @@ st.markdown(f"""
     }}
 
     @media print {{
-        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader {{
+        header, footer, .stSidebar, .stButton, .no-print, [data-testid="stSidebarNav"], .stFileUploader, .stDownloadButton {{
             display: none !important;
         }}
         .paper {{ margin: 0 !important; box-shadow: none !important; width: 100% !important; padding: 0 !important; }}
@@ -119,7 +122,9 @@ st.markdown(f"""
     .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
     .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
-    .graphics-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
+    
+    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
+    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
     .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
     .graphic-col img {{ max-width: 100%; max-height: 120px; }}
 
@@ -133,16 +138,17 @@ with st.sidebar:
     
     # 1. IMPORT Z GARIS (PDF)
     st.subheader("📄 Import z GARIS (PDF)")
-    garis_file = st.file_uploader("Nahrajte PDF ponuku", type=['pdf'])
-    if garis_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
-        with st.spinner("AI analyzuje dokument..."):
-            extracted = extract_data_from_garis(garis_file)
+    erp_file = st.file_uploader("Nahrajte PDF ponuku z GARIS", type=['pdf'])
+    if erp_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
+        with st.spinner("AI analyzuje GARIS dokument..."):
+            extracted = extract_data_from_garis(erp_file)
             if extracted:
                 st.session_state.client['f'] = extracted.get('firma', "")
                 st.session_state.client['a'] = extracted.get('adresa', "")
                 st.session_state.client['o'] = extracted.get('osoba', "")
                 st.session_state.client['v'] = extracted.get('vypracoval', "")
                 
+                # Párovanie s Excelom
                 if os.path.exists("produkty.xlsx"):
                     df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
                     for p in extracted.get('polozky', []):
@@ -152,7 +158,7 @@ with st.sidebar:
                             "kod": p['kod'], "n": p['nazov'], "f": "", "v": "",
                             "ks": int(p['mnozstvo']), "p": float(p['cena_bez_dph']), "z": 0, "br": 0, "img": img_url
                         })
-                st.success("Import úspešný!")
+                st.success("Dáta z GARIS načítané!")
                 st.rerun()
 
     st.divider()
@@ -170,11 +176,10 @@ with st.sidebar:
         df_db.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
         
         with st.expander("➕ Pridať položky", expanded=True):
-            model = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
-            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model]
-            farba = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
-            
-            color_sub = sub[sub['FARBA'] == farba]
+            model_sel = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
+            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model_sel]
+            farba_sel = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
+            color_sub = sub[sub['FARBA'] == farba_sel]
             suggested_img = str(color_sub['IMG_PRODUCT'].dropna().iloc[0]) if not color_sub['IMG_PRODUCT'].dropna().empty else ""
 
             velkosti = st.multiselect("Veľkosti", sort_sizes(color_sub['SIZE'].unique()))
@@ -187,7 +192,7 @@ with st.sidebar:
                 for s in velkosti:
                     row = color_sub[color_sub['SIZE'] == s].iloc[0]
                     st.session_state.offer_items.append({
-                        "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
+                        "kod": row['KOD_IT'], "n": model_sel, "f": farba_sel, "v": s,
                         "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": link_img
                     })
                 st.rerun()
@@ -277,15 +282,15 @@ doc_html = f"""
 
     <div class="orange-line"></div>
     <div class="section-header">BRANDING</div>
-    <div style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
+    <div class="branding-row" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
         <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
         <div style="flex:2"><b>Popis</b><br>{b_desc}</div>
         <div style="flex:1; text-align:right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
     <div class="graphics-row" style="display:flex; justify-content:space-between; gap:20px;">
-        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box">{render_files(upl_logos)}</div></div>
-        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box">{render_files(upl_previews)}</div></div>
+        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_logos)}</div></div>
+        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_previews)}</div></div>
     </div>
 
     <div class="footer-box">
@@ -299,5 +304,5 @@ st.html(doc_html)
 
 # TLAČIDLO TLAČE
 st.write("")
-if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
+if st.button("🖨️ TLAČIŤ PONUKU", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
