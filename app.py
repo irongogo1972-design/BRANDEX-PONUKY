@@ -34,42 +34,31 @@ def extract_data_from_garis(uploaded_file):
     try:
         genai.configure(api_key=api_key)
         
-        # DYNAMICKÝ VÝBER MODELU: Skúsime modely zo zoznamu v poradí priority
-        # 1. skúsime 1.5 flash, potom 2.0 flash, potom 1.5 pro
-        available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        
-        # Zoradíme modely tak, aby sme uprednostnili tie najstabilnejšie pre free tier
-        priority = ['models/gemini-1.5-flash', 'models/gemini-2.0-flash', 'models/gemini-1.5-flash-latest']
-        selected_model = None
-        
-        for p in priority:
-            if p in available_models:
-                selected_model = p
-                break
-        
-        if not selected_model:
-            selected_model = available_models[0] # Ak nič z priority, vezmi prvý dostupný
-            
-        model = genai.GenerativeModel(selected_model)
+        # Vyskúšame najprv 2.0 Flash (ten vidíte v AI Studiu), ak zlyhá, použijeme 1.5
+        try:
+            model = genai.GenerativeModel('gemini-2.0-flash-exp')
+        except:
+            model = genai.GenerativeModel('gemini-1.5-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
         
         prompt = """
-        Analyzuj PDF ponuku zo systému GARIS. Vráť IBA JSON:
-        { "firma": "", "adresa": "", "osoba": "", "vypracoval": "", 
-          "polozky": [{ "kod": "", "nazov": "", "mnozstvo": 0, "cena_bez_dph": 0.0 }] }
+        Analyzuj PDF ponuku zo systému GARIS. Vytiahni dáta a vráť ich v čistom JSON formáte.
+        Polia: firma, adresa, osoba, vypracoval, polozky (zoznam: kod, nazov, mnozstvo, cena_bez_dph).
+        Vráť IBA čistý JSON bez markdown značiek.
         """
         
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        if "```json" in text_response:
-            text_response = text_response.split("```json")[1].split("```")[0]
-        elif "```" in text_response:
-            text_response = text_response.split("```")[1].split("```")[0]
+        # Vyčistenie JSONu (odstránenie prípadných ```json značiek)
+        if "{" in text_response:
+            json_start = text_response.find("{")
+            json_end = text_response.rfind("}") + 1
+            text_response = text_response[json_start:json_end]
             
-        return json.loads(text_response.strip())
+        return json.loads(text_response)
     except Exception as e:
         st.error(f"AI Import zlyhal: {e}")
         return None
