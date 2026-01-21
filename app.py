@@ -33,7 +33,7 @@ def extract_data_from_erp(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # Použijeme stabilný názov modelu
+        # Skúšame najstabilnejší identifikátor modelu
         model = genai.GenerativeModel('gemini-1.5-flash')
         
         file_data = uploaded_file.getvalue()
@@ -47,21 +47,22 @@ def extract_data_from_erp(uploaded_file):
         - osoba (kontaktná osoba)
         - vypracoval (meno spracovateľa)
         - polozky (zoznam, kde každá položka má: kod, nazov, mnozstvo, cena_bez_dph)
-        Kód produktu skús nájsť v texte (napr. B02E, O82, atď.).
-        Vráť IBA čistý JSON.
+        Vráť IBA JSON, nič iné.
         """
         
         response = model.generate_content([prompt, content[0]])
-        # Vyčistenie odpovede od prípadných JSON tagov
         text_response = response.text.strip()
-        if text_response.startswith("```json"):
+        
+        # Očistenie od markdown značiek
+        if "```json" in text_response:
             text_response = text_response.split("```json")[1].split("```")[0]
-        elif text_response.startswith("```"):
+        elif "```" in text_response:
             text_response = text_response.split("```")[1].split("```")[0]
             
         return json.loads(text_response.strip())
     except Exception as e:
-        st.error(f"AI analýza zlyhala: {e}")
+        st.error(f"AI analýza zlyhala (Model Error): {e}")
+        st.info("Tip: Skontrolujte, či má váš API kľúč v Google AI Studio povolený model Gemini 1.5 Flash.")
         return None
 
 # Inicializácia pamäte
@@ -199,7 +200,7 @@ with st.sidebar:
                 st.rerun()
 
     with st.expander("🎨 Branding a Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
         b_desc = st.text_area("Popis")
         b_date = st.date_input("Dátum vzorky", datetime.now())
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
@@ -207,7 +208,7 @@ with st.sidebar:
 
     if st.session_state.offer_items:
         st.divider()
-        if st.button("🗑️ VYMAZAŤ VŠETKO"):
+        if st.button("🗑️ VYMAZAŤ CELÚ PONUKU"):
             st.session_state.offer_items = []
             st.rerun()
         for idx, item in enumerate(st.session_state.offer_items):
@@ -282,13 +283,13 @@ doc_html = f"""
 
     <div class="orange-line"></div>
     <div class="section-header">BRANDING</div>
-    <div class="branding-row">
+    <div class="branding-row" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
         <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
         <div style="flex:2"><b>Popis</b><br>{b_desc}</div>
         <div style="flex:1; text-align:right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
-    <div class="graphics-container">
+    <div class="graphics-row" style="display:flex; justify-content:space-between; gap:20px;">
         <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box">{render_files(upl_logos)}</div></div>
         <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box">{render_files(upl_previews)}</div></div>
     </div>
@@ -300,7 +301,7 @@ doc_html = f"""
 </div>
 """
 
-# Zobrazenie (st.html je v roku 2026 najlepšia cesta pre čisté HTML)
+# Zobrazenie
 st.html(doc_html)
 
 # TLAČIDLO TLAČE
