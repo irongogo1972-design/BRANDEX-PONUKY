@@ -24,7 +24,7 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z ERP PDF (OPRAVENÁ VERZIA) ---
+# --- 2. AI EXTRAKCIA Z ERP PDF (AKTUALIZOVANÁ VERZIA) ---
 def extract_data_from_erp(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -33,8 +33,10 @@ def extract_data_from_erp(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # Skúšame najstabilnejší identifikátor modelu
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # V roku 2026 skúsime najprv gemini-2.0-flash, potom 1.5
+        model_to_use = 'gemini-1.5-flash' 
+        model = genai.GenerativeModel(model_to_use)
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
@@ -47,22 +49,20 @@ def extract_data_from_erp(uploaded_file):
         - osoba (kontaktná osoba)
         - vypracoval (meno spracovateľa)
         - polozky (zoznam, kde každá položka má: kod, nazov, mnozstvo, cena_bez_dph)
-        Vráť IBA JSON, nič iné.
+        Kód hľadaj v názve tovaru. Vráť IBA čistý JSON bez markdown značiek.
         """
         
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Očistenie od markdown značiek
-        if "```json" in text_response:
-            text_response = text_response.split("```json")[1].split("```")[0]
-        elif "```" in text_response:
-            text_response = text_response.split("```")[1].split("```")[0]
+        # Odstránenie prípadných JSON obalov ak ich AI pridá
+        if text_response.startswith("```"):
+            text_response = text_response.splitlines()[1:-1]
+            text_response = "".join(text_response)
             
         return json.loads(text_response.strip())
     except Exception as e:
-        st.error(f"AI analýza zlyhala (Model Error): {e}")
-        st.info("Tip: Skontrolujte, či má váš API kľúč v Google AI Studio povolený model Gemini 1.5 Flash.")
+        st.error(f"AI analýza zlyhala: {e}")
         return None
 
 # Inicializácia pamäte
@@ -133,7 +133,16 @@ st.markdown(f"""
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    # 1. IMPORT Z ERP
+    # 1. DIAGNOSTIKA (Pre prípad chyby 404)
+    if st.button("🔍 Overiť dostupné AI modely"):
+        try:
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+            st.write(models)
+        except Exception as e:
+            st.error(f"Chyba: {e}")
+
+    # 2. IMPORT Z ERP
     st.subheader("📄 Import z ERP PDF")
     erp_file = st.file_uploader("Nahrajte PDF ponuku", type=['pdf', 'png', 'jpg', 'jpeg'])
     if erp_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
@@ -160,12 +169,12 @@ with st.sidebar:
 
     st.divider()
     with st.expander("👤 Odberateľ a Termíny", expanded=False):
-        c_firma = st.text_input("Firma", st.session_state.client['f'])
-        c_adresa = st.text_area("Adresa", st.session_state.client['a'])
-        c_osoba = st.text_input("Kontakt", st.session_state.client['o'])
-        c_platnost = st.date_input("Platnosť", st.session_state.client['p'])
-        c_dodanie = st.text_input("Doba dodania", st.session_state.client['d'])
-        c_vypracoval = st.text_input("Vypracoval", st.session_state.client['v'])
+        st.session_state.client['f'] = st.text_input("Firma", st.session_state.client['f'])
+        st.session_state.client['a'] = st.text_area("Adresa", st.session_state.client['a'])
+        st.session_state.client['o'] = st.text_input("Kontakt", st.session_state.client['o'])
+        st.session_state.client['p'] = st.date_input("Platnosť", st.session_state.client['p'])
+        st.session_state.client['d'] = st.text_input("Doba dodania", st.session_state.client['d'])
+        st.session_state.client['v'] = st.text_input("Vypracoval", st.session_state.client['v'])
 
     # 3. PRIDÁVANIE TOVARU
     if os.path.exists("produkty.xlsx"):
@@ -200,7 +209,7 @@ with st.sidebar:
                 st.rerun()
 
     with st.expander("🎨 Branding a Grafika", expanded=False):
-        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
+        b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli"])
         b_desc = st.text_area("Popis")
         b_date = st.date_input("Dátum vzorky", datetime.now())
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
@@ -208,7 +217,7 @@ with st.sidebar:
 
     if st.session_state.offer_items:
         st.divider()
-        if st.button("🗑️ VYMAZAŤ CELÚ PONUKU"):
+        if st.button("🗑️ VYMAZAŤ VŠETKO"):
             st.session_state.offer_items = []
             st.rerun()
         for idx, item in enumerate(st.session_state.offer_items):
@@ -255,12 +264,12 @@ doc_html = f"""
     <div class="main-title">PONUKA</div>
 
     <div class="info-grid">
-        <div class="info-left"><b>ODBERATEĽ :</b><br>{c_firma if c_firma else "................"}<br>{c_adresa if c_adresa else ""}<br>{c_osoba if c_osoba else ""}</div>
+        <div class="info-left"><b>ODBERATEĽ :</b><br>{st.session_state.client['f'] if st.session_state.client['f'] else "................"}<br>{st.session_state.client['a'] if st.session_state.client['a'] else ""}<br>{st.session_state.client['o'] if st.session_state.client['o'] else ""}</div>
         <div class="info-right">
-            <b>PLATNOSŤ PONUKY DO :</b><br>{c_platnost.strftime('%d. %m. %Y')}<br><br>
-            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{c_dodanie}<br>
+            <b>PLATNOSŤ PONUKY DO :</b><br>{st.session_state.client['p'].strftime('%d. %m. %Y')}<br><br>
+            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{st.session_state.client['d']}<br>
             <span style="font-size:9px; font-style:italic; color:#555;">od schválenia vzoriek</span><br><br>
-            <b>VYPRACOVAL :</b><br>{c_vypracoval if c_vypracoval else "................"}
+            <b>VYPRACOVAL :</b><br>{st.session_state.client['v'] if st.session_state.client['v'] else "................"}
         </div>
     </div>
 
@@ -268,7 +277,7 @@ doc_html = f"""
     <div class="section-header">POLOŽKY</div>
     <table class="items-table">
         <thead><tr><th>Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th></tr></thead>
-        <tbody>{table_body if table_body else "<tr><td colspan='10'>Žiadne položky</td></tr>"}</tbody>
+        <tbody>{table_body if table_body else "<tr><td colspan='10' style='text-align:center; padding:20px;'>Žiadne položky</td></tr>"}</tbody>
     </table>
 
     <div class="summary-wrapper">
@@ -301,7 +310,7 @@ doc_html = f"""
 </div>
 """
 
-# Zobrazenie
+# Zobrazenie cez st.html
 st.html(doc_html)
 
 # TLAČIDLO TLAČE
