@@ -34,19 +34,23 @@ def extract_data_from_garis(uploaded_file):
     try:
         genai.configure(api_key=api_key)
         
-        # Vyskúšame najprv 2.0 Flash (ten vidíte v AI Studiu), ak zlyhá, použijeme 1.5
-        try:
-            model = genai.GenerativeModel('gemini-2.0-flash-exp')
-        except:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+        # ZMENA: Používame stabilný model 1.5 Flash namiesto 2.0-exp
+        # Tento model má pre váš účet povolené limity.
+        model = genai.GenerativeModel('gemini-1.5-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
         
         prompt = """
-        Analyzuj PDF ponuku zo systému GARIS. Vytiahni dáta a vráť ich v čistom JSON formáte.
-        Polia: firma, adresa, osoba, vypracoval, polozky (zoznam: kod, nazov, mnozstvo, cena_bez_dph).
-        Vráť IBA čistý JSON bez markdown značiek.
+        Analyzuj túto PDF ponuku zo systému GARIS. Vytiahni dáta a vráť ich v čistom JSON formáte.
+        Polia:
+        - firma (názov odberateľa)
+        - adresa (kompletná adresa)
+        - osoba (kontaktná osoba)
+        - vypracoval (meno spracovateľa)
+        - polozky (zoznam, kde každá má: kod, nazov, mnozstvo, cena_bez_dph)
+        Kód identifikuj napr. ako 'B02E' alebo 'O82'.
+        Vráť IBA JSON bez akýchkoľvek markdown značiek.
         """
         
         response = model.generate_content([prompt, content[0]])
@@ -60,7 +64,10 @@ def extract_data_from_garis(uploaded_file):
             
         return json.loads(text_response)
     except Exception as e:
-        st.error(f"AI Import zlyhal: {e}")
+        if "429" in str(e):
+            st.error("⚠️ Google na moment obmedzil požiadavky. Skúste to znova o 30 sekúnd.")
+        else:
+            st.error(f"AI Import zlyhal: {e}")
         return None
 
 # Inicializácia pamäte
