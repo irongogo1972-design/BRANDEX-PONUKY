@@ -24,7 +24,7 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z GARIS PDF (OPRAVENÝ MODEL 2.0) ---
+# --- 2. AI EXTRAKCIA Z GARIS PDF (AKTUALIZOVANÁ NA MODEL 2.0) ---
 def extract_data_from_garis(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -33,7 +33,7 @@ def extract_data_from_garis(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # POUŽÍVAME MODEL 2.0 FLASH (podľa vašej diagnostiky je dostupný)
+        # POUŽÍVAME MODEL 2.0 FLASH - podľa vašej diagnostiky je plne funkčný
         model = genai.GenerativeModel('gemini-2.0-flash')
         
         file_data = uploaded_file.getvalue()
@@ -48,13 +48,13 @@ def extract_data_from_garis(uploaded_file):
         - vypracoval (meno spracovateľa)
         - polozky (zoznam, kde každá má: kod, nazov, mnozstvo, cena_bez_dph)
         Kód identifikuj napr. ako 'B02E' alebo 'O82'.
-        Vráť IBA JSON bez akýchkoľvek markdown značiek (bez ```json).
+        Vráť IBA JSON bez akýchkoľvek markdown značiek.
         """
         
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Odstránenie prípadných JSON obalov ak ich AI pridá
+        # Očistenie od markdown obalov (ak by ich AI predsa len pridala)
         if text_response.startswith("```"):
             text_response = "\n".join(text_response.splitlines()[1:-1])
             
@@ -116,11 +116,10 @@ st.markdown(f"""
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
     .summary-table {{ width: 280px; border-collapse: collapse; border: none !important; }}
     .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 3px 8px; text-align: right; font-size: 11px; }}
-    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 14px !important; border-bottom: 2px solid #FF8C00 !important; }}
+    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
     .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
-    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
-    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
+    .graphics-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
     .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
     .graphic-col img {{ max-width: 100%; max-height: 120px; }}
 
@@ -134,9 +133,9 @@ with st.sidebar:
     
     # 1. IMPORT Z GARIS (PDF)
     st.subheader("📄 Import z GARIS (PDF)")
-    garis_file = st.file_uploader("Nahrajte PDF ponuku z GARIS", type=['pdf'])
+    garis_file = st.file_uploader("Nahrajte PDF ponuku", type=['pdf'])
     if garis_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
-        with st.spinner("AI analyzuje GARIS dokument..."):
+        with st.spinner("AI analyzuje dokument..."):
             extracted = extract_data_from_garis(garis_file)
             if extracted:
                 st.session_state.client['f'] = extracted.get('firma', "")
@@ -144,18 +143,16 @@ with st.sidebar:
                 st.session_state.client['o'] = extracted.get('osoba', "")
                 st.session_state.client['v'] = extracted.get('vypracoval', "")
                 
-                # Párovanie s Excelom pre obrázky
                 if os.path.exists("produkty.xlsx"):
                     df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
                     for p in extracted.get('polozky', []):
-                        # Hľadáme v stĺpci A (index 0)
                         match = df_db_full[df_db_full.iloc[:, 0].astype(str).str.contains(str(p['kod']), na=False, case=False)]
                         img_url = str(match.iloc[0, 16]) if not match.empty else ""
                         st.session_state.offer_items.append({
                             "kod": p['kod'], "n": p['nazov'], "f": "", "v": "",
                             "ks": int(p['mnozstvo']), "p": float(p['cena_bez_dph']), "z": 0, "br": 0, "img": img_url
                         })
-                st.success("Dáta z GARIS načítané!")
+                st.success("Import úspešný!")
                 st.rerun()
 
     st.divider()
@@ -163,20 +160,21 @@ with st.sidebar:
         c_firma = st.text_input("Firma", st.session_state.client['f'])
         c_adresa = st.text_area("Adresa", st.session_state.client['a'])
         c_osoba = st.text_input("Kontakt", st.session_state.client['o'])
-        c_platnost = st.date_input("Platnosť do", st.session_state.client['p'])
+        c_platnost = st.date_input("Platnosť", st.session_state.client['p'])
         c_dodanie = st.text_input("Doba dodania", st.session_state.client['d'])
         c_vypracoval = st.text_input("Ponuku vypracoval", st.session_state.client['v'])
 
-    # 3. PRIDÁVANIE TOVARU MANUÁLNE
+    # 3. PRIDÁVANIE TOVARU
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
         df_db.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
         
         with st.expander("➕ Pridať položky", expanded=True):
-            model_sel = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
-            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model_sel]
-            farba_sel = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
-            color_sub = sub[sub['FARBA'] == farba_sel]
+            model = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
+            sub = df_db[df_db['SKUPINOVY_NAZOV'] == model]
+            farba = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
+            
+            color_sub = sub[sub['FARBA'] == farba]
             suggested_img = str(color_sub['IMG_PRODUCT'].dropna().iloc[0]) if not color_sub['IMG_PRODUCT'].dropna().empty else ""
 
             velkosti = st.multiselect("Veľkosti", sort_sizes(color_sub['SIZE'].unique()))
@@ -189,7 +187,7 @@ with st.sidebar:
                 for s in velkosti:
                     row = color_sub[color_sub['SIZE'] == s].iloc[0]
                     st.session_state.offer_items.append({
-                        "kod": row['KOD_IT'], "n": model_sel, "f": farba_sel, "v": s,
+                        "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
                         "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": link_img
                     })
                 st.rerun()
@@ -214,6 +212,7 @@ with st.sidebar:
 # --- 5. ZOSTAVENIE HTML VÝSTUPU ---
 def render_files(files):
     h = ""
+    if not files: return h
     for f in files:
         if f.type == "application/pdf": h += f'<div style="font-size:10px">📄 {f.name} (PDF)</div>'
         else: h += f'<img src="data:image/png;base64,{base64.b64encode(f.getvalue()).decode()}">'
@@ -254,7 +253,7 @@ doc_html = f"""
         <div class="info-right">
             <b>PLATNOSŤ PONUKY DO :</b><br>{c_platnost.strftime('%d. %m. %Y')}<br><br>
             <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{c_dodanie}<br>
-            <span class="delivery-note">od schválenia vzoriek</span><br><br>
+            <span style="font-size:9px; font-style:italic; color:#555;">od schválenia vzoriek</span><br><br>
             <b>VYPRACOVAL :</b><br>{c_vypracoval if c_vypracoval else "................"}
         </div>
     </div>
@@ -300,5 +299,5 @@ st.html(doc_html)
 
 # TLAČIDLO TLAČE
 st.write("")
-if st.button("🖨️ TLAČIŤ PONUKU", use_container_width=True):
+if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
