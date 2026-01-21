@@ -3,6 +3,8 @@ import streamlit as st
 import pandas as pd
 import os
 import base64
+import google.generativeai as genai
+import json
 from datetime import datetime, timedelta
 
 # --- 1. POMOCNÉ FUNKCIE ---
@@ -15,9 +17,6 @@ def get_base64_image(image_path):
 
 def file_to_base64(uploaded_file):
     if uploaded_file is not None:
-        # Kontrola typu súboru
-        if uploaded_file.type == "application/pdf":
-            return "PDF_FILE" # Príznak pre PDF
         return base64.b64encode(uploaded_file.getvalue()).decode()
     return ""
 
@@ -25,11 +24,47 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# Inicializácia pamäte
-if 'offer_items' not in st.session_state: st.session_state['offer_items'] = []
+# --- 2. AI EXTRAKCIA Z ERP PDF ---
+def extract_data_from_erp(uploaded_file):
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        st.error("Chýba API kľúč v Secrets!")
+        return None
+    
+    genai.configure(api_key=api_key)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    file_data = uploaded_file.getvalue()
+    content = [{"mime_type": uploaded_file.type, "data": file_data}]
+    
+    prompt = """
+    Analyzuj túto PDF ponuku z ERP systému a vráť údaje v čistom JSON formáte.
+    Polia:
+    - firma (názov odberateľa)
+    - adresa (adresa odberateľa)
+    - osoba (kontaktná osoba)
+    - vypracoval (meno spracovateľa)
+    - polozky (zoznam, kde každá položka má: kod, nazov, mnozstvo, cena_bez_dph)
+    
+    Dôležité: Kód produktu môže byť v názve (napr. O82, B02E).
+    Vráť IBA JSON, nič iné.
+    """
+    
+    try:
+        response = model.generate_content([prompt, content[0]])
+        clean_json = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean_json)
+    except Exception as e:
+        st.error(f"AI analýza zlyhala: {e}")
+        return None
 
-# --- 2. NASTAVENIA STRÁNKY A CSS ---
-st.set_page_config(page_title="BRANDEX Creator", layout="wide", initial_sidebar_state="expanded")
+# --- 3. INICIALIZÁCIA PAMÄTE ---
+if 'offer_items' not in st.session_state: st.session_state['offer_items'] = []
+if 'client' not in st.session_state: 
+    st.session_state['client'] = {"f": "", "a": "", "o": "", "p": datetime.now() + timedelta(days=14), "v": "", "d": "10-14 pracovných dní"}
+
+# --- 4. CSS DESIGN ---
+st.set_page_config(page_title="Brandex AI Creator", layout="wide", initial_sidebar_state="expanded")
 
 logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
@@ -39,11 +74,10 @@ st.markdown(f"""
     [data-testid="stHeader"] {{ display: none !important; }}
     
     .paper {{
-        background: white; width: 210mm; min-height: 297mm;
-        padding: 15mm; margin: 10px auto;
+        background: white; width: 210mm; min-height: 290mm;
+        padding: 12mm 15mm; margin: 0 auto;
         box-shadow: 0 0 10px rgba(0,0,0,0.1);
         color: black; font-family: "Arial", sans-serif;
-        line-height: 1.2;
     }}
 
     @media print {{
@@ -56,51 +90,79 @@ st.markdown(f"""
             text-align: center; border-top: 2px solid #FF8C00;
             padding: 5px 0; background: white; font-size: 8px;
         }}
-        .side-by-side-print {{ display: flex !important; flex-direction: row !important; justify-content: space-between !important; }}
         @page {{ size: A4; margin: 1cm; }}
     }}
 
-    .header {{ text-align: center; margin-bottom: 5px; }}
-    .header img {{ width: 220px; }} 
-    .main-title {{ font-size: 28px; font-weight: bold; text-align: center; text-transform: uppercase; margin: 5px 0 15px 0; }}
-    .orange-line {{ border-top: 2px solid #FF8C00; margin: 10px 0; }}
+    .header-logo {{ text-align: center; margin-bottom: 5px; }}
+    .header-logo img {{ width: 220px; }}
+    .main-title {{ font-size: 32px; font-weight: bold; text-align: center; text-transform: uppercase; margin: -10px 0 15px 0; }}
+    .orange-line {{ border-top: 2px solid #FF8C00; margin: 8px 0; }}
 
     .info-grid {{ display: flex; justify-content: space-between; margin-top: 15px; font-size: 11px; }}
-    .info-left {{ width: 55%; text-align: left; line-height: 1.1; }}
-    .info-right {{ width: 40%; text-align: right; line-height: 1.1; }}
+    .info-left {{ width: 55%; text-align: left; line-height: 1.2; }}
+    .info-right {{ width: 40%; text-align: right; line-height: 1.2; }}
 
-    table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; table-layout: fixed; }}
+    table.items-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; color: black; }}
     table.items-table th {{ background: #f2f2f2; border: 1px solid #ccc; padding: 5px; font-size: 9px; text-transform: uppercase; }}
-    table.items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 9px; vertical-align: middle; }}
+    table.items-table td {{ border: 1px solid #ccc; padding: 4px; text-align: center; font-size: 10px; vertical-align: middle; }}
     .img-cell img {{ max-width: 80px; max-height: 110px; object-fit: contain; }}
 
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
     .summary-table {{ width: 280px; border-collapse: collapse; border: none !important; }}
-    .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 2px 8px; text-align: right; font-size: 11px; }}
+    .summary-table td {{ border-bottom: 1px solid #eee !important; padding: 3px 8px; text-align: right; font-size: 11px; }}
     .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
-    .section-title {{ font-weight: bold; font-size: 12px; margin-top: 15px; text-transform: uppercase; }}
-    .graphics-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
-    .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 100px; }}
-    .graphic-col img {{ max-width: 100%; max-height: 140px; margin-top: 5px; }}
-    .pdf-placeholder {{ font-size: 10px; color: #555; margin-top: 20px; }}
+    .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
+    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
+    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
+    .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
+    .graphic-col img {{ max-width: 100%; max-height: 120px; }}
 
-    .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 40px; padding-top: 5px; line-height: 1.4; }}
+    .footer-box {{ font-size: 10px; text-align: center; border-top: 2px solid #FF8C00; margin-top: 30px; padding-top: 5px; line-height: 1.4; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. SIDEBAR OVLÁDANIE ---
+# --- 5. SIDEBAR OVLÁDANIE ---
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    with st.expander("👤 Odberateľ a Termíny", expanded=False):
-        c_firma = st.text_input("Firma", "")
-        c_adresa = st.text_area("Adresa", "")
-        c_osoba = st.text_input("Kontakt")
-        c_platnost = st.date_input("Platnosť do", datetime.now() + timedelta(days=14))
-        c_dodanie = st.text_input("Doba dodania", "10-14 pracovných dní")
-        c_vypracoval = st.text_input("Ponuku vypracoval")
+    # 1. NAČÍTANIE PDF (NA VRCHU)
+    st.subheader("📄 Import z ERP")
+    erp_file = st.file_uploader("Nahrajte PDF ponuku z ERP systému", type=['pdf'])
+    if erp_file and st.button("🚀 NAČÍTAŤ DÁTA Z PDF"):
+        with st.spinner("AI analyzuje PDF..."):
+            extracted = extract_data_from_erp(erp_file)
+            if extracted:
+                st.session_state.client['f'] = extracted.get('firma', "")
+                st.session_state.client['a'] = extracted.get('adresa', "")
+                st.session_state.client['o'] = extracted.get('osoba', "")
+                st.session_state.client['v'] = extracted.get('vypracoval', "")
+                
+                # Automatické párovanie s Excelom pre obrázky
+                if os.path.exists("produkty.xlsx"):
+                    df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
+                    for p in extracted.get('polozky', []):
+                        match = df_db_full[df_db_full.iloc[:, 0].astype(str).str.contains(str(p['kod']), na=False, case=False)]
+                        img_url = str(match.iloc[0, 16]) if not match.empty else ""
+                        st.session_state.offer_items.append({
+                            "kod": p['kod'], "n": p['nazov'], "f": "", "v": "",
+                            "ks": p['mnozstvo'], "p": float(p['cena_bez_dph']), "z": 0, "br": 0, "img": img_url
+                        })
+                st.success("Dáta z ERP boli nahraté!")
+                st.rerun()
 
+    st.divider()
+
+    # 2. ÚDAJE ODBERATEĽA
+    with st.expander("👤 Odberateľ a Termíny", expanded=False):
+        c_firma = st.text_input("Firma", st.session_state.client['f'])
+        c_adresa = st.text_area("Adresa", st.session_state.client['a'])
+        c_osoba = st.text_input("Kontakt", st.session_state.client['o'])
+        c_platnost = st.date_input("Platnosť do", st.session_state.client['p'])
+        c_dodanie = st.text_input("Doba dodania", st.session_state.client['d'])
+        c_vypracoval = st.text_input("Vypracoval", st.session_state.client['v'])
+
+    # 3. PRIDÁVANIE TOVARU
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
         df_db.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
@@ -110,6 +172,7 @@ with st.sidebar:
             sub = df_db[df_db['SKUPINOVY_NAZOV'] == model]
             farba = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
             
+            # Predvyplnenie linku zo stĺpca Q
             color_sub = sub[sub['FARBA'] == farba]
             suggested_img = ""
             if not color_sub.empty:
@@ -120,23 +183,21 @@ with st.sidebar:
             qty = st.number_input("Počet ks", 1, 5000, 1)
             disc = st.number_input("Zľava %", 0, 100, 0)
             br_u = st.number_input("Branding/ks €", 0.0, 50.0, 0.0, step=0.1)
-            link_img = st.text_input("Vlastný link na obrázok", value=suggested_img)
+            link_img = st.text_input("Link na obrázok", value=suggested_img)
             
             if st.button("PRIDAŤ DO TABUĽKY"):
                 for s in velkosti:
                     row = color_sub[color_sub['SIZE'] == s].iloc[0]
-                    if not any(item['kod'] == row['KOD_IT'] and item['v'] == s for item in st.session_state.offer_items):
-                        st.session_state.offer_items.append({
-                            "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
-                            "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": link_img
-                        })
+                    st.session_state.offer_items.append({
+                        "kod": row['KOD_IT'], "n": model, "f": farba, "v": s,
+                        "ks": qty, "p": float(row['PRICE']), "z": disc, "br": br_u, "img": link_img
+                    })
                 st.rerun()
 
     with st.expander("🎨 Branding a Grafika", expanded=False):
         b_tech = st.selectbox("Technológia", ["Sieťotlač", "Výšivka", "DTF", "Laser", "Subli", "Tampoprint"])
         b_desc = st.text_area("Popis")
         b_date = st.date_input("Dodanie vzorky", datetime.now())
-        # TU SOM PRIDAL 'pdf' DO POVOLENÝCH FORMÁTOV
         upl_logos = st.file_uploader("LOGÁ", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
         upl_previews = st.file_uploader("NÁHĽADY", type=['png','jpg','jpeg','pdf'], accept_multiple_files=True)
 
@@ -150,18 +211,15 @@ with st.sidebar:
                 st.session_state.offer_items.pop(idx)
                 st.rerun()
 
-# --- 4. ZOSTAVENIE HTML VÝSTUPU ---
-def render_graphic_files(files):
-    html = ""
+# --- 6. ZOSTAVENIE HTML ---
+def render_files(files):
+    h = ""
     for f in files:
-        if f.type == "application/pdf":
-            html += f'<div class="pdf-placeholder">📄 Súbor PDF nahraný: {f.name}</div>'
-        else:
-            b64 = base64.b64encode(f.getvalue()).decode()
-            html += f'<img src="data:image/png;base64,{b64}">'
-    return html
+        if f.type == "application/pdf": h += f'<div style="font-size:10px">📄 {f.name} (PDF)</div>'
+        else: h += f'<img src="data:image/png;base64,{base64.b64encode(f.getvalue()).decode()}">'
+    return h
 
-table_rows = ""
+table_body = ""
 t_items = 0
 t_brand = 0
 if st.session_state.offer_items:
@@ -175,53 +233,37 @@ if st.session_state.offer_items:
             r_sum = it['ks'] * (pz + it['br'])
             t_items += (it['ks'] * pz)
             t_brand += (it['ks'] * it['br'])
-            row_html = "<tr>"
+            row = "<tr>"
             if i == 0:
                 img = it['img'] if it['img'] != 'nan' else ""
-                row_html += f'<td rowspan="{g_size}" class="img-cell"><img src="{img}"></td>'
-            row_html += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{it['br']:.2f} €</td><td>{r_sum:.2f} €</td></tr>"
-            table_rows += row_html
+                row += f'<td rowspan="{g_size}" class="img-cell"><img src="{img}"></td>'
+            row += f"<td>{it['kod']}</td><td>{it['n']}</td><td>{it['f']}</td><td>{it['v']}</td><td>{it['ks']}</td><td>{it['p']:.2f} €</td><td>{it['z']}%</td><td>{it['br']:.2f} €</td><td>{r_sum:.2f} €</td></tr>"
+            table_body += row
             idx += 1
 
 sum_base = t_items + t_brand
 
-final_html = f"""
+# KONŠTRUKCIA FINÁLNEHO HTML
+doc_html = f"""
 <div class="paper">
-    <div class="header">
-        <img src="data:image/png;base64,{logo_main_b64 if logo_main_b64 else ''}">
-    </div>
+    <div class="header"><img src="data:image/png;base64,{logo_main_b64 if logo_main_b64 else ''}"></div>
     <div class="main-title">PONUKA</div>
 
-    <div class="info-grid side-by-side-print">
-        <div class="info-left">
-            <b>ODBERATEĽ :</b><br>
-            {c_firma if c_firma else "........................"}<br>
-            {c_adresa if c_adresa else ""}<br>
-            {c_osoba if c_osoba else ""}
-        </div>
+    <div class="info-grid">
+        <div class="info-left"><b>ODBERATEĽ :</b><br>{c_firma if c_firma else "................"}<br>{c_adresa if c_adresa else ""}<br>{c_osoba if c_osoba else ""}</div>
         <div class="info-right">
-            <b>PLATNOSŤ PONUKY DO :</b><br>
-            {c_platnost.strftime('%d. %m. %Y')}<br><br>
-            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>
-            {c_dodanie if c_dodanie else "........................"}<br>
+            <b>PLATNOSŤ PONUKY DO :</b><br>{c_platnost.strftime('%d. %m. %Y')}<br><br>
+            <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{c_dodanie}<br>
             <span style="font-size:9px; font-style:italic; color:#555;">od schválenia vzoriek</span><br><br>
-            <b>VYPRACOVAL :</b><br>
-            {c_vypracoval if c_vypracoval else "........................"}
+            <b>VYPRACOVAL :</b><br>{c_vypracoval if c_vypracoval else "................"}
         </div>
     </div>
 
     <div class="orange-line"></div>
     <div class="section-title">POLOŽKY</div>
     <table class="items-table">
-        <thead>
-            <tr>
-                <th style="width:85px">Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th>
-                <th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th>
-            </tr>
-        </thead>
-        <tbody>
-            {table_rows if table_rows else "<tr><td colspan='10'>Žiadne položky</td></tr>"}
-        </tbody>
+        <thead><tr><th>Obrázok</th><th>Kód</th><th>Názov</th><th>Farba</th><th>Veľkosť</th><th>Počet</th><th>Cena/ks</th><th>Zľava</th><th>Branding</th><th>Suma bez DPH</th></tr></thead>
+        <tbody>{table_body if table_body else "<tr><td colspan='10'>Žiadne položky</td></tr>"}</tbody>
     </table>
 
     <div class="summary-wrapper">
@@ -236,21 +278,15 @@ final_html = f"""
 
     <div class="orange-line"></div>
     <div class="section-title">BRANDING</div>
-    <div class="branding-container side-by-side-print" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
+    <div class="branding-row" style="display:flex; justify-content:space-between; font-size:11px; margin-top:5px;">
         <div style="flex:1"><b>Technológia</b><br>{b_tech}</div>
-        <div style="flex:2"><b>Popis</b><br>{b_desc if b_desc else "..."}</div>
+        <div style="flex:2"><b>Popis</b><br>{b_desc}</div>
         <div style="flex:1; text-align:right;"><b>Dodanie vzorky</b><br>{b_date.strftime('%d. %m. %Y')}</div>
     </div>
 
-    <div class="graphics-row side-by-side-print">
-        <div class="graphic-col">
-            <div class="section-title">LOGO KLIENTA</div>
-            <div class="graphic-box">{render_graphic_files(upl_logos)}</div>
-        </div>
-        <div class="graphic-col">
-            <div class="section-header section-title">NÁHĽAD GRAFIKY</div>
-            <div class="graphic-box">{render_graphic_files(upl_previews)}</div>
-        </div>
+    <div class="graphics-row" style="display:flex; justify-content:space-between; gap:20px;">
+        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box">{render_files(upl_logos)}</div></div>
+        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box">{render_files(upl_previews)}</div></div>
     </div>
 
     <div class="footer-box">
@@ -260,7 +296,7 @@ final_html = f"""
 </div>
 """
 
-st.html(final_html)
+st.html(doc_html)
 
 # TLAČIDLO TLAČE
 st.write("")
