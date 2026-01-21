@@ -24,7 +24,7 @@ def sort_sizes(size_list):
     order = ['XXS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL']
     return sorted(size_list, key=lambda x: order.index(x) if x in order else 99)
 
-# --- 2. AI EXTRAKCIA Z GARIS PDF (OPRAVA NA MODEL 1.5 FLASH) ---
+# --- 2. AI EXTRAKCIA Z GARIS PDF (OPRAVENÝ MODEL 2.0) ---
 def extract_data_from_garis(uploaded_file):
     api_key = st.secrets.get("GEMINI_API_KEY", "")
     if not api_key:
@@ -33,8 +33,8 @@ def extract_data_from_garis(uploaded_file):
     
     try:
         genai.configure(api_key=api_key)
-        # Prepneme na stabilný model 1.5 Flash kvôli kvóte
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        # POUŽÍVAME MODEL 2.0 FLASH (podľa vašej diagnostiky je dostupný)
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
@@ -54,14 +54,13 @@ def extract_data_from_garis(uploaded_file):
         response = model.generate_content([prompt, content[0]])
         text_response = response.text.strip()
         
-        # Očistenie od markdown obalov pre istotu
+        # Odstránenie prípadných JSON obalov ak ich AI pridá
         if text_response.startswith("```"):
             text_response = "\n".join(text_response.splitlines()[1:-1])
             
         return json.loads(text_response.strip())
     except Exception as e:
         st.error(f"AI Import zlyhal: {e}")
-        st.info("Tip: Ak chyba pretrváva, skúste vytvoriť nový API kľúč v Google AI Studio v úplne novom projekte.")
         return None
 
 # Inicializácia pamäte
@@ -70,7 +69,7 @@ if 'client' not in st.session_state:
     st.session_state['client'] = {"f": "", "a": "", "o": "", "p": datetime.now() + timedelta(days=14), "v": "", "d": "10-14 pracovných dní"}
 
 # --- 3. NASTAVENIA STRÁNKY A CSS (WYSIWYG) ---
-st.set_page_config(page_title="Brandex Creator PRO", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Brandex Creator (GARIS)", layout="wide", initial_sidebar_state="expanded")
 
 logo_main_b64 = get_base64_image("brandex_logo.PNG")
 
@@ -117,11 +116,11 @@ st.markdown(f"""
     .summary-wrapper {{ display: flex; justify-content: flex-end; margin-top: 10px; }}
     .summary-table {{ width: 280px; border-collapse: collapse; border: none !important; }}
     .summary-table td {{ border: none !important; border-bottom: 1px solid #eee !important; padding: 3px 8px; text-align: right; font-size: 11px; }}
-    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 13px !important; border-bottom: 2px solid #FF8C00 !important; }}
+    .total-row {{ font-weight: bold; background: #fdf2e9; font-size: 14px !important; border-bottom: 2px solid #FF8C00 !important; }}
 
     .section-header {{ font-weight: bold; font-size: 13px; margin-top: 20px; text-transform: uppercase; }}
-    
-    .graphics-container {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 10px; }}
+    .branding-row {{ display: flex; justify-content: space-between; gap: 20px; margin-top: 5px; font-size: 11px; }}
+    .graphics-container {{ display: flex; gap: 20px; margin-top: 10px; }}
     .graphic-col {{ width: 48%; border: 1px dashed #ccc; padding: 5px; text-align: center; min-height: 110px; display: flex; flex-direction: column; gap: 5px; align-items: center; }}
     .graphic-col img {{ max-width: 100%; max-height: 120px; }}
 
@@ -133,28 +132,30 @@ st.markdown(f"""
 with st.sidebar:
     st.title("👔 Brandex Editor")
     
-    # 1. IMPORT Z GARIS
+    # 1. IMPORT Z GARIS (PDF)
     st.subheader("📄 Import z GARIS (PDF)")
-    erp_file = st.file_uploader("Nahrajte PDF ponuku", type=['pdf'])
-    if erp_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
+    garis_file = st.file_uploader("Nahrajte PDF ponuku z GARIS", type=['pdf'])
+    if garis_file and st.button("🚀 IMPORTOVAŤ DÁTA"):
         with st.spinner("AI analyzuje GARIS dokument..."):
-            extracted = extract_data_from_garis(erp_file)
+            extracted = extract_data_from_garis(garis_file)
             if extracted:
                 st.session_state.client['f'] = extracted.get('firma', "")
                 st.session_state.client['a'] = extracted.get('adresa', "")
                 st.session_state.client['o'] = extracted.get('osoba', "")
                 st.session_state.client['v'] = extracted.get('vypracoval', "")
                 
+                # Párovanie s Excelom pre obrázky
                 if os.path.exists("produkty.xlsx"):
                     df_db_full = pd.read_excel("produkty.xlsx", engine="openpyxl")
                     for p in extracted.get('polozky', []):
+                        # Hľadáme v stĺpci A (index 0)
                         match = df_db_full[df_db_full.iloc[:, 0].astype(str).str.contains(str(p['kod']), na=False, case=False)]
                         img_url = str(match.iloc[0, 16]) if not match.empty else ""
                         st.session_state.offer_items.append({
                             "kod": p['kod'], "n": p['nazov'], "f": "", "v": "",
                             "ks": int(p['mnozstvo']), "p": float(p['cena_bez_dph']), "z": 0, "br": 0, "img": img_url
                         })
-                st.success("Import úspešný!")
+                st.success("Dáta z GARIS načítané!")
                 st.rerun()
 
     st.divider()
@@ -162,11 +163,11 @@ with st.sidebar:
         c_firma = st.text_input("Firma", st.session_state.client['f'])
         c_adresa = st.text_area("Adresa", st.session_state.client['a'])
         c_osoba = st.text_input("Kontakt", st.session_state.client['o'])
-        c_platnost = st.date_input("Platnosť", st.session_state.client['p'])
+        c_platnost = st.date_input("Platnosť do", st.session_state.client['p'])
         c_dodanie = st.text_input("Doba dodania", st.session_state.client['d'])
-        c_vypracoval = st.text_input("Vypracoval", st.session_state.client['v'])
+        c_vypracoval = st.text_input("Ponuku vypracoval", st.session_state.client['v'])
 
-    # 3. PRIDÁVANIE TOVARU
+    # 3. PRIDÁVANIE TOVARU MANUÁLNE
     if os.path.exists("produkty.xlsx"):
         df_db = pd.read_excel("produkty.xlsx", engine="openpyxl").iloc[:, [0, 5, 6, 7, 13, 16]]
         df_db.columns = ["KOD_IT", "SKUPINOVY_NAZOV", "FARBA", "SIZE", "PRICE", "IMG_PRODUCT"]
@@ -175,7 +176,6 @@ with st.sidebar:
             model_sel = st.selectbox("Produkt", sorted(df_db['SKUPINOVY_NAZOV'].unique()))
             sub = df_db[df_db['SKUPINOVY_NAZOV'] == model_sel]
             farba_sel = st.selectbox("Farba", sorted(sub['FARBA'].unique()))
-            
             color_sub = sub[sub['FARBA'] == farba_sel]
             suggested_img = str(color_sub['IMG_PRODUCT'].dropna().iloc[0]) if not color_sub['IMG_PRODUCT'].dropna().empty else ""
 
@@ -254,7 +254,7 @@ doc_html = f"""
         <div class="info-right">
             <b>PLATNOSŤ PONUKY DO :</b><br>{c_platnost.strftime('%d. %m. %Y')}<br><br>
             <b>PREDPOKLADANÁ DOBA DODANIA :</b><br>{c_dodanie}<br>
-            <span style="font-size:9px; font-style:italic; color:#555;">od schválenia vzoriek</span><br><br>
+            <span class="delivery-note">od schválenia vzoriek</span><br><br>
             <b>VYPRACOVAL :</b><br>{c_vypracoval if c_vypracoval else "................"}
         </div>
     </div>
@@ -285,8 +285,8 @@ doc_html = f"""
     </div>
 
     <div class="graphics-row" style="display:flex; justify-content:space-between; gap:20px;">
-        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_logos)}</div></div>
-        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box" style="border:1px dashed #ccc; padding:5px; text-align:center; min-height:100px;">{render_files(upl_previews)}</div></div>
+        <div class="graphic-col"><div class="section-title">LOGO KLIENTA</div><div class="graphic-box">{render_files(upl_logos)}</div></div>
+        <div class="graphic-col"><div class="section-title">NÁHĽAD GRAFIKY</div><div class="graphic-box">{render_files(upl_previews)}</div></div>
     </div>
 
     <div class="footer-box">
@@ -300,5 +300,5 @@ st.html(doc_html)
 
 # TLAČIDLO TLAČE
 st.write("")
-if st.button("🖨️ Tlačiť ponuku", use_container_width=True):
+if st.button("🖨️ TLAČIŤ PONUKU", use_container_width=True):
     st.components.v1.html("<script>window.parent.focus(); window.parent.print();</script>", height=0)
