@@ -1,6 +1,7 @@
 streamlit
-google-generativeai>=0.8.3
 pandas
-requests
-fpdf2
 openpyxl
+google-generativeai
+requests
+Pillow
+fpdf2
