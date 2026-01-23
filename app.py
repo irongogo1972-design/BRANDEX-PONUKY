@@ -34,8 +34,7 @@ def extract_data_from_garis(uploaded_file):
     try:
         genai.configure(api_key=api_key)
         # POUŽÍVAME MODEL 2.0 FLASH - najstabilnejší pre nové projekty v roku 2026
-	#modelName = "gemini-2.5-pro"
-        model = genai.GenerativeModel('gemini-2.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         file_data = uploaded_file.getvalue()
         content = [{"mime_type": uploaded_file.type, "data": file_data}]
